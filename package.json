@@ -1,0 +1,47 @@
+{
+  "name": "whatsapp-aicentral",
+  "version": "1.0.0",
+  "description": "WhatsApp clone with AI Central integration",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "build": "npm run build:client",
+    "build:client": "cd client && npm run build",
+    "install:all": "npm install && cd client && npm install",
+    "deploy:build": "npm run install:all && npm run build",
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:stop": "pm2 stop whatsapp-multi-user",
+    "pm2:restart": "pm2 restart whatsapp-multi-user",
+    "pm2:logs": "pm2 logs whatsapp-multi-user",
+    "pm2:status": "pm2 status",
+    "production": "NODE_ENV=production npm start",
+    "setup:env": "cp .env.example .env"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
+    "axios": "^1.5.0",
+    "compression": "^1.8.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "multer": "^1.4.5-lts.1",
+    "node-fetch": "^2.7.0",
+    "qrcode": "^1.5.3",
+    "socket.io": "^4.7.2",
+    "uuid": "^9.0.0",
+    "whatsapp-web.js": "^1.22.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "keywords": [
+    "whatsapp",
+    "web",
+    "ai",
+    "chatbot",
+    "aicentral"
+  ],
+  "author": "AI Central Team",
+  "license": "MIT"
+}

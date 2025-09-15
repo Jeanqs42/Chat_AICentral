@@ -1,0 +1,129 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-100 text-gray-900;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+@layer components {
+  .chat-bubble {
+    @apply max-w-xs lg:max-w-md px-4 py-2 rounded-lg break-words;
+  }
+  
+  .chat-bubble-sent {
+    @apply bg-green-500 text-white ml-auto;
+  }
+  
+  .chat-bubble-received {
+    @apply bg-white text-gray-800 mr-auto;
+  }
+  
+  .chat-input {
+    @apply w-full px-4 py-3 rounded-full border border-gray-300 focus:outline-none focus:border-green-500 resize-none;
+  }
+  
+  .sidebar-item {
+    @apply flex items-center p-3 hover:bg-gray-100 cursor-pointer transition-colors duration-200;
+  }
+  
+  .sidebar-item.active {
+    @apply bg-green-100;
+  }
+  
+  .qr-container {
+    @apply flex flex-col items-center justify-center p-8 bg-white rounded-lg shadow-lg;
+  }
+  
+  .loading-spinner {
+    @apply animate-spin rounded-full h-8 w-8 border-b-2 border-green-500;
+  }
+  
+  .message-time {
+    @apply text-xs text-gray-500 mt-1;
+  }
+  
+  .chat-header {
+    @apply flex items-center p-4 bg-gray-50 border-b border-gray-200;
+  }
+  
+  .chat-container {
+    @apply flex-1 overflow-y-auto p-4 space-y-4;
+  }
+  
+  .chat-footer {
+    @apply p-4 bg-gray-50 border-t border-gray-200;
+  }
+}
+
+/* Scrollbar customization */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* Animation classes */
+.fade-in {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.slide-up {
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* WhatsApp-like message bubbles */
+.message-bubble {
+  position: relative;
+  word-wrap: break-word;
+}
+
+.message-bubble::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  width: 0;
+  height: 0;
+}
+
+.message-bubble.sent::before {
+  right: -8px;
+  border-left: 8px solid #00a884;
+  border-top: 8px solid transparent;
+}
+
+.message-bubble.received::before {
+  left: -8px;
+  border-right: 8px solid white;
+  border-top: 8px solid transparent;
+}
