@@ -33,6 +33,9 @@ const defaultConfig = {
 };
 config = { ...defaultConfig, ...config };
 
+// Importar PostgreSQL Manager
+const postgresManager = require('./database/postgresql');
+
 // Sistema de logging melhorado
 const createLogger = () => {
   const logDir = path.join(__dirname, 'logs');
@@ -73,6 +76,22 @@ const logger = createLogger();
 // Importar configuração do Supabase
 const { saveMessage, saveContact, getMessageHistory, getContacts } = require('./config/supabase');
 
+// Inicializar PostgreSQL
+let isPostgresReady = false;
+postgresManager.initialize().then((success) => {
+  isPostgresReady = success;
+  if (success) {
+    logger.info('🐘 PostgreSQL inicializado com sucesso - Modo híbrido ativado');
+    logger.info('📊 PostgreSQL: Mensagens e dados operacionais');
+    logger.info('☁️  Supabase: Configurações e dados críticos');
+  } else {
+    logger.info('⚠️  PostgreSQL indisponível - Usando apenas Supabase');
+  }
+}).catch(error => {
+  logger.info('❌ Erro ao inicializar PostgreSQL:', error.message);
+  isPostgresReady = false;
+});
+
 const app = express();
 const server = http.createServer(app);
 
@@ -93,7 +112,7 @@ const io = socketIo(server, {
 });
 
 // Configuração da API AI Central
-const AI_CENTRAL_API = 'https://aicentral.store/api';
+const AI_CENTRAL_API = process.env.AI_CENTRAL_URL || 'https://aicentral.store/api';
 
 // Middleware de produção
 if (process.env.NODE_ENV === 'production') {
@@ -137,6 +156,7 @@ app.use(express.static(path.join(__dirname, 'client/dist'), {
 const userSessions = new Map(); // Map<apiKey, UserSession>
 const socketSessions = new Map(); // Map<socketId, {apiKey, sessionId}>
 const agentConfigs = new Map(); // Map<apiKey, AgentConfig>
+const sessionConfigCache = new Map(); // Map<sessionId, {configHash, lastUpdated}>
 
 // Estrutura de configuração de agente
 class AgentConfig {
@@ -173,6 +193,9 @@ class AgentConfig {
     this.keywords = [];
     this.welcomeMessage = 'Olá! Como posso ajudá-lo hoje?';
     this.awayMessage = 'Obrigado pela mensagem! Retornaremos em breve.';
+    
+    // Controle por comandos de texto
+    this.enableTextCommands = true; // Permitir comandos /on e /off por texto
     
     // Controle de rate limiting por contato
     this.contactRateLimit = new Map();
@@ -217,6 +240,9 @@ class UserSession {
     this.sockets = new Set(); // Sockets conectados para este usuário
     this.agentConfig = new AgentConfig(); // Configuração do agente
     this.pausedContacts = new Map(); // Map<contactId, pauseEndTime>
+    this.lastChatRequest = 0; // Throttling para chats
+    this.lastMessageRequest = 0; // Throttling para mensagens
+    this.intentionalDisconnect = false; // Flag para desconexões intencionais
   }
 
   addSocket(socket) {
@@ -264,7 +290,17 @@ class UserSession {
 // Função para obter ou criar sessão do usuário
 function getUserSession(apiKey) {
   if (!userSessions.has(apiKey)) {
-    userSessions.set(apiKey, new UserSession(apiKey));
+    const newSession = new UserSession(apiKey);
+    
+    // Carregar configuração salva do mapa global se existir
+    const savedConfig = agentConfigs.get(apiKey);
+    if (savedConfig) {
+      // Atualizar a configuração da sessão com a configuração salva
+      Object.assign(newSession.agentConfig, savedConfig);
+      console.log(`Configuração do agente carregada para usuário ${apiKey.slice(-8)}:`, savedConfig);
+    }
+    
+    userSessions.set(apiKey, newSession);
   }
   return userSessions.get(apiKey);
 }
@@ -272,20 +308,45 @@ function getUserSession(apiKey) {
 // Função para limpeza completa de sessão WhatsApp
 async function cleanupWhatsAppSession(userSession) {
   try {
-    // Limpar dados da sessão
+    console.log(`🧹 Iniciando limpeza completa de cache para usuário ${userSession.apiKey.slice(-8)}`);
+    
+    // Limpar dados da sessão WhatsApp
     userSession.whatsappClient = null;
     userSession.isClientReady = false;
-    userSession.isInitializing = false; // Limpar flag de inicialização
+    userSession.isInitializing = false;
     userSession.qrCodeData = null;
+    
+    // Limpar caches de conversação e contatos pausados
     userSession.conversationStates.clear();
     userSession.pausedContacts.clear();
+    
+    // Limpar cache de configurações de sessão relacionadas a este usuário
+    const apiKey = userSession.apiKey;
+    for (const [sessionId, cacheData] of sessionConfigCache.entries()) {
+      if (sessionId.includes(apiKey)) {
+        sessionConfigCache.delete(sessionId);
+        console.log(`🗑️ Cache de configuração removido para sessão: ${sessionId}`);
+      }
+    }
+    
+    // Limpar configurações do agente
+    if (agentConfigs.has(apiKey)) {
+      agentConfigs.delete(apiKey);
+      console.log(`🗑️ Configuração do agente removida para: ${apiKey.slice(-8)}`);
+    }
+    
+    // Forçar garbage collection se disponível
+    if (global.gc) {
+      global.gc();
+      console.log(`♻️ Garbage collection executado`);
+    }
     
     // Notificar todos os sockets da sessão sobre a desconexão
     userSession.broadcast('whatsapp_disconnected');
     
-    console.log(`Sessão WhatsApp limpa para usuário ${userSession.apiKey.slice(-8)}`);
+    console.log(`✅ Limpeza completa de cache concluída para usuário ${userSession.apiKey.slice(-8)}`);
   } catch (error) {
-    console.error(`Erro ao limpar sessão WhatsApp:`, error);
+    console.error(`❌ Erro ao limpar sessão WhatsApp:`, error);
   }
 }
 
@@ -295,15 +356,18 @@ function verifyUserAccess(requestApiKey, resourceApiKey) {
 }
 
 // Configuração do cliente WhatsApp por sessão
-function initializeWhatsAppClient(userSession) {
+async function initializeWhatsAppClient(userSession) {
   // Verificar se já está inicializando para evitar múltiplas inicializações
   if (userSession.isInitializing) {
-    console.log(`Inicialização já em andamento para usuário ${userSession.apiKey.slice(-8)}, ignorando nova tentativa`);
-    return;
+    console.log(`⚠️ Inicialização já em andamento para usuário ${userSession.apiKey.slice(-8)}, resetando para nova tentativa`);
+    // Resetar flags para permitir nova inicialização
+    userSession.isInitializing = false;
+    userSession.isClientReady = false;
   }
   
   // Marcar como inicializando
   userSession.isInitializing = true;
+  console.log(`🚀 Iniciando nova sessão WhatsApp para usuário ${userSession.apiKey.slice(-8)}`);
   
   // Garantir que cada usuário tenha um clientId único e isolado
   const uniqueClientId = `aicentral-whatsapp-${userSession.apiKey.slice(-8)}`;
@@ -312,10 +376,15 @@ function initializeWhatsAppClient(userSession) {
   if (userSession.whatsappClient) {
     console.log(`Cliente WhatsApp já existe para usuário ${userSession.apiKey.slice(-8)}, destruindo anterior`);
     try {
-      userSession.whatsappClient.destroy();
+      // Aguardar a destruição completa antes de continuar
+      await userSession.whatsappClient.destroy();
+      // Aguardar um pouco para garantir limpeza completa
+      await new Promise(resolve => setTimeout(resolve, 1000));
     } catch (error) {
       console.error('Erro ao destruir cliente anterior:', error);
+      // Continuar mesmo com erro para não bloquear nova inicialização
     }
+    userSession.whatsappClient = null;
   }
   
   userSession.whatsappClient = new Client({
@@ -338,12 +407,16 @@ function initializeWhatsAppClient(userSession) {
   });
 
   userSession.whatsappClient.on('qr', async (qr) => {
-    console.log(`QR Code gerado para usuário: ${userSession.apiKey.slice(-8)}`);
+    console.log(`🔄 QR Code gerado para usuário: ${userSession.apiKey.slice(-8)}`);
+    console.log(`📱 QR String length: ${qr.length}`);
     try {
       userSession.qrCodeData = await qrcode.toDataURL(qr);
+      console.log(`✅ QR Code convertido para DataURL`);
+      console.log(`📡 Broadcasting QR code para ${userSession.sockets.size} sockets`);
       userSession.broadcast('qr_code', userSession.qrCodeData);
+      console.log(`📤 QR Code enviado via broadcast`);
     } catch (err) {
-      console.error('Erro ao gerar QR code:', err);
+      console.error('❌ Erro ao gerar QR code:', err);
     }
   });
 
@@ -352,6 +425,9 @@ function initializeWhatsAppClient(userSession) {
     userSession.isClientReady = true;
     userSession.qrCodeData = null;
     userSession.isInitializing = false; // Desmarcar flag de inicialização
+    
+    // NÃO carregar chats antigos automaticamente - apenas notificar que está pronto
+    console.log(`✅ WhatsApp conectado - aguardando novas mensagens em tempo real`);
     userSession.broadcast('whatsapp_ready');
   });
 
@@ -371,13 +447,27 @@ function initializeWhatsAppClient(userSession) {
     
     userSession.isInitializing = false; // Desmarcar flag de inicialização
     
+    // Verificar se é uma desconexão intencional (logout do usuário)
+    const isIntentionalDisconnect = reason && (
+      reason.includes('LOGOUT') || 
+      reason.includes('user_logout') ||
+      userSession.intentionalDisconnect
+    );
+    
     // Limpeza automática quando WhatsApp desconecta
     await cleanupWhatsAppSession(userSession);
     
-    // Se a desconexão foi inesperada, notificar com o motivo
-    if (reason) {
+    // Notificar frontend com contexto apropriado
+    if (isIntentionalDisconnect) {
+      userSession.broadcast('whatsapp_disconnected', 'LOGOUT');
+    } else if (reason) {
       userSession.broadcast('whatsapp_disconnected', reason);
+    } else {
+      userSession.broadcast('whatsapp_disconnected');
     }
+    
+    // Reset flag de desconexão intencional
+    userSession.intentionalDisconnect = false;
   });
 
   userSession.whatsappClient.on('message', async (message) => {
@@ -403,24 +493,108 @@ function initializeWhatsAppClient(userSession) {
       };
       
       userSession.broadcast('new_message', messageData);
+      console.log(`📨 Nova mensagem em tempo real para usuário ${userSession.apiKey.slice(-8)}`);
+
+      // Criar/atualizar contato dinamicamente no banco
+      try {
+        await postgresManager.query(`
+          INSERT INTO chats (chat_id, chat_name, chat_type, is_active)
+          VALUES ($1, $2, $3, $4)
+          ON CONFLICT (chat_id) DO UPDATE SET
+            chat_name = EXCLUDED.chat_name,
+            updated_at = NOW()
+        `, [
+          messageData.from,
+          contact.name || contact.pushname || contact.number || 'Contato',
+          contact.isGroup ? 'group' : 'private',
+          true
+        ]);
+
+        // Salvar contato dinamicamente
+        await postgresManager.saveContact({
+          chatId: messageData.from,
+          number: contact.number,
+          name: contact.name,
+          pushname: contact.pushname,
+          profilePicUrl: contact.profilePicUrl,
+          isGroup: contact.isGroup
+        });
+
+        // Salvar mensagem
+        await postgresManager.saveMessage({
+          chatId: messageData.from,
+          messageId: messageData.id,
+          content: messageData.body,
+          messageType: messageData.type || 'text',
+          fromUser: messageData.from,
+          toUser: messageData.to,
+          isFromMe: messageData.fromMe
+        });
+
+        console.log('✅ Contato e mensagem salvos dinamicamente');
+      } catch (dbError) {
+        console.error('❌ Erro ao salvar dados:', dbError);
+      }
       console.log(`Mensagem emitida para usuário ${userSession.apiKey.slice(-8)}:`, messageData);
 
-      // Salvar mensagem no Supabase
-      await saveMessage(messageData);
-      
-      // Salvar contato no Supabase
-      await saveContact({
-        id: messageData.from,
-        number: contact.number,
-        name: contact.name,
-        pushname: contact.pushname,
-        profilePicUrl: contact.profilePicUrl,
-        isGroup: contact.isGroup
-      });
+      // Primeiro, garantir que o chat existe no banco
+      try {
+        await postgresManager.query(`
+          INSERT INTO chats (chat_id, chat_name, chat_type, is_active)
+          VALUES ($1, $2, $3, $4)
+          ON CONFLICT (chat_id) DO UPDATE SET
+            chat_name = EXCLUDED.chat_name,
+            updated_at = NOW()
+        `, [
+          messageData.from,
+          contact.name || contact.pushname || contact.number || 'Chat sem nome',
+          contact.isGroup ? 'group' : 'private',
+          true
+        ]);
+        console.log('✅ Chat garantido no PostgreSQL');
+      } catch (chatError) {
+        console.error('❌ Erro ao garantir chat no PostgreSQL:', chatError);
+      }
 
-      // Processar com AI Central se não for mensagem própria
+      // Salvar contato no PostgreSQL
+      try {
+        await postgresManager.saveContact({
+          chatId: messageData.from,
+          number: contact.number,
+          name: contact.name,
+          pushname: contact.pushname,
+          profilePicUrl: contact.profilePicUrl,
+          isGroup: contact.isGroup
+        });
+        console.log('✅ Contato salvo no PostgreSQL');
+      } catch (contactError) {
+        console.error('❌ Erro ao salvar contato no PostgreSQL:', contactError);
+      }
+
+      // Salvar mensagem no PostgreSQL
+      try {
+        await postgresManager.saveMessage({
+          chatId: messageData.from,
+          messageId: messageData.id,
+          content: messageData.body,
+          messageType: messageData.type || 'text',
+          fromUser: messageData.from,
+          toUser: messageData.to,
+          isFromMe: messageData.fromMe
+        });
+        console.log('✅ Mensagem salva no PostgreSQL');
+      } catch (dbError) {
+        console.error('❌ Erro ao salvar mensagem no PostgreSQL:', dbError);
+      }
+
+      // Processar comandos de controle do agente primeiro
       if (!message.fromMe && message.body) {
-        await processMessageWithAI(message, userSession);
+        const commandResult = await processAgentCommands(message, userSession);
+        
+        // Se não foi um comando, processar com AI Central
+        if (!commandResult) {
+          await processMessageWithAI(message, userSession);
+        }
       }
     } catch (error) {
       console.error('Erro ao processar mensagem:', error);
@@ -428,6 +602,60 @@ function initializeWhatsAppClient(userSession) {
   });
 
   userSession.whatsappClient.initialize();
+}
+
+// Função para processar comandos de controle do agente
+async function processAgentCommands(message, userSession) {
+  try {
+    const messageText = message.body.trim().toLowerCase();
+    
+    // Verificar se é um comando válido
+    if (messageText === '/on' || messageText === '/off') {
+      const contact = await message.getContact();
+      const isActivating = messageText === '/on';
+      
+      // Verificar se os comandos por texto estão habilitados nas configurações
+      if (!userSession.agentConfig.enableTextCommands) {
+        console.log(`Comandos por texto desabilitados para usuário ${userSession.apiKey.slice(-8)}`);
+        return false;
+      }
+      
+      // Atualizar status do agente
+      userSession.agentEnabled = isActivating;
+      
+      // Preparar mensagem de resposta
+      const responseMessage = isActivating 
+        ? `✅ Agente ativado com sucesso! O ${userSession.agentConfig.name} agora está respondendo automaticamente a todos os contatos no WhatsApp conforme configurado na plataforma.`
+        : `⏸️ Agente desativado! O ${userSession.agentConfig.name} não responderá automaticamente a nenhum contato até ser reativado com o comando /on.`;
+      
+      // Enviar resposta de confirmação
+      setTimeout(async () => {
+        try {
+          await userSession.whatsappClient.sendMessage(message.from, responseMessage);
+          console.log(`Comando ${messageText} processado para ${contact.number} (usuário ${userSession.apiKey.slice(-8)})`);
+          
+          // Emitir evento para o frontend
+          userSession.broadcast('agent-status-changed', {
+            enabled: isActivating,
+            changedBy: 'text-command',
+            contact: {
+              name: contact.name || contact.pushname || contact.number,
+              number: contact.number
+            }
+          });
+        } catch (error) {
+          console.error(`Erro ao enviar resposta do comando ${messageText}:`, error);
+        }
+      }, 1000); // Delay de 1 segundo para resposta do comando
+      
+      return true; // Indica que foi processado como comando
+    }
+    
+    return false; // Não é um comando
+  } catch (error) {
+    console.error('Erro ao processar comando do agente:', error);
+    return false;
+  }
 }
 
 // Função para processar mensagem com AI Central
@@ -563,6 +791,24 @@ async function processMessageWithAI(message, userSession) {
     
     const fullPrompt = `${systemPrompt}\n\nMensagem do cliente: ${message.body}\n\nResponda de forma adequada:`;
     
+    // Iniciar indicador de digitação no WhatsApp
+    try {
+      const chat = await message.getChat();
+      await chat.sendStateTyping();
+      console.log(`Indicador de digitação iniciado para ${message.from} (usuário ${userSession.apiKey.slice(-8)})`);
+      
+      // Emitir para o frontend que a IA está processando
+      userSession.broadcast('ai_typing_start', {
+        chatId: message.from,
+        contact: {
+          name: contact.name || contact.pushname || contact.number,
+          number: contact.number
+        }
+      });
+    } catch (typingError) {
+      console.error('Erro ao iniciar indicador de digitação:', typingError);
+    }
+    
     // Fazer requisição para AI Central usando a chave da sessão
     const response = await callAICentral(
       fullPrompt,
@@ -572,6 +818,19 @@ async function processMessageWithAI(message, userSession) {
 
     if (response && response.answer) {
       console.log(`Resposta da AI recebida para usuário ${userSession.apiKey.slice(-8)}:`, response.answer);
+      
+      // Parar indicador de digitação
+      try {
+        const chat = await message.getChat();
+        await chat.clearState();
+        
+        // Emitir para o frontend que a IA parou de digitar
+        userSession.broadcast('ai_typing_stop', {
+          chatId: message.from
+        });
+      } catch (clearStateError) {
+        console.error('Erro ao parar indicador de digitação:', clearStateError);
+      }
       
       // Aplicar limite de caracteres na resposta
       let finalResponse = response.answer;
@@ -613,17 +872,58 @@ async function processMessageWithAI(message, userSession) {
           
           userSession.broadcast('new_message', aiMessageData);
           
-          // Salvar resposta da AI no Supabase
-          await saveMessage(aiMessageData);
+          // Salvar resposta da AI no PostgreSQL
+          try {
+            await postgresManager.saveMessage({
+              chatId: aiMessageData.from,
+              messageId: aiMessageData.id,
+              content: aiMessageData.body,
+              messageType: 'text',
+              fromUser: 'ai_assistant',
+              toUser: aiMessageData.to,
+              isFromMe: true,
+              aiResponse: response.answer
+            });
+            console.log('✅ Resposta da AI salva no PostgreSQL');
+          } catch (dbError) {
+            console.error('❌ Erro ao salvar resposta da AI no PostgreSQL:', dbError);
+          }
         } catch (sendError) {
           console.error(`Erro ao enviar resposta automática:`, sendError);
         }
       }, userSession.agentConfig.responseDelay);
     } else {
       console.log('Resposta da AI vazia ou inválida');
+      
+      // Parar indicador de digitação mesmo se não houver resposta
+      try {
+        const chat = await message.getChat();
+        await chat.clearState();
+        
+        // Emitir para o frontend que a IA parou de digitar
+        userSession.broadcast('ai_typing_stop', {
+          chatId: message.from
+        });
+      } catch (clearStateError) {
+        console.error('Erro ao parar indicador de digitação:', clearStateError);
+      }
     }
   } catch (error) {
     console.error('Erro ao processar mensagem com AI Central:', error.message);
+    
+    // Parar indicador de digitação em caso de erro
+    try {
+      const chat = await message.getChat();
+      await chat.clearState();
+      
+      // Emitir para o frontend que a IA parou de digitar
+      const contact = await message.getContact();
+      userSession.broadcast('ai_typing_stop', {
+        chatId: message.from
+      });
+    } catch (clearStateError) {
+      console.error('Erro ao parar indicador de digitação no catch:', clearStateError);
+    }
     
     // Tentar resposta de fallback se houver erro na API
     if (userSession.agentEnabled) {
@@ -668,8 +968,22 @@ async function processMessageWithAI(message, userSession) {
               
               userSession.broadcast('new_message', aiMessageData);
               
-              // Salvar resposta no Supabase
-              await saveMessage(aiMessageData);
+              // Salvar resposta de fallback no PostgreSQL
+              try {
+                await postgresManager.saveMessage({
+                  chatId: aiMessageData.from,
+                  messageId: aiMessageData.id,
+                  content: aiMessageData.body,
+                  messageType: 'text',
+                  fromUser: 'ai_fallback',
+                  toUser: aiMessageData.to,
+                  isFromMe: true,
+                  aiResponse: fallbackResponse.answer
+                });
+                console.log('✅ Resposta de fallback salva no PostgreSQL');
+              } catch (dbError) {
+                console.error('❌ Erro ao salvar resposta de fallback no PostgreSQL:', dbError);
+              }
             } catch (sendError) {
               console.error(`Erro ao enviar resposta de fallback:`, sendError);
               // Enviar mensagem de erro como último recurso
@@ -898,7 +1212,7 @@ async function callAICentral(question, sessionId, apiKey) {
         'X-API-Key': apiKey // Suporte para ambos os métodos de autenticação
       },
       body: JSON.stringify(requestData),
-      timeout: 30000 // 30 segundos de timeout
+      timeout: parseInt(process.env.AI_REQUEST_TIMEOUT) || 30000 // timeout configurável
     });
     
     if (!response.ok) {
@@ -1073,7 +1387,9 @@ io.on('connection', (socket) => {
     
     // Sempre inicializar um novo cliente para garantir isolamento completo
     console.log(`Inicializando WhatsApp para usuário ${userSession.apiKey.slice(-8)}`);
-    initializeWhatsAppClient(userSession);
+    initializeWhatsAppClient(userSession).catch(error => {
+      console.error('Erro na inicialização do WhatsApp:', error);
+    });
   });
 
   socket.on('check_whatsapp_status', () => {
@@ -1089,7 +1405,9 @@ io.on('connection', (socket) => {
       socket.emit('whatsapp_ready');
     } else {
       console.log(`WhatsApp não está conectado para usuário ${userSession.apiKey.slice(-8)}, inicializando...`);
-      initializeWhatsAppClient(userSession);
+      initializeWhatsAppClient(userSession).catch(error => {
+        console.error('Erro na inicialização do WhatsApp:', error);
+      });
     }
   });
 
@@ -1155,7 +1473,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('get_chats', async () => {
+  socket.on('get_chats', async (options = {}) => {
     if (!userSession) {
       socket.emit('chats_error', 'Usuário não autenticado');
       return;
@@ -1165,6 +1483,13 @@ io.on('connection', (socket) => {
     const socketSession = socketSessions.get(socket.id);
     if (!socketSession || !verifyUserAccess(socketSession.apiKey, userSession.apiKey)) {
       socket.emit('chats_error', 'Acesso negado');
+      return;
+    }
+    
+    // Verificar se WhatsApp está realmente pronto antes de tentar carregar chats
+    if (!userSession.isClientReady || !userSession.whatsappClient) {
+      console.log(`WhatsApp não está pronto para usuário ${userSession.apiKey.slice(-8)}, não carregando chats`);
+      socket.emit('chats_error', 'WhatsApp não está conectado');
       return;
     }
     
@@ -1181,10 +1506,25 @@ io.on('connection', (socket) => {
     try {
       if (userSession.isClientReady && userSession.whatsappClient) {
         console.log(`Carregando chats para usuário ${userSession.apiKey.slice(-8)}`);
-        const chats = await userSession.whatsappClient.getChats();
-        console.log(`Encontrados ${chats.length} chats`);
         
-        const chatList = await Promise.all(chats.map(async (chat) => {
+        // Parâmetros de paginação
+        const limit = options.limit || 20; // Limite padrão de 20 chats
+        const offset = options.offset || 0; // Offset padrão de 0
+        
+        const chats = await userSession.whatsappClient.getChats();
+        console.log(`Encontrados ${chats.length} chats totais`);
+        
+        // Ordenar chats por última mensagem (mais recentes primeiro)
+        const sortedChats = chats.sort((a, b) => {
+          const timestampA = a.lastMessage ? a.lastMessage.timestamp : 0;
+          const timestampB = b.lastMessage ? b.lastMessage.timestamp : 0;
+          return timestampB - timestampA;
+        });
+        
+        // Aplicar paginação
+        const paginatedChats = sortedChats.slice(offset, offset + limit);
+        
+        const chatList = await Promise.all(paginatedChats.map(async (chat) => {
           try {
             const contact = await chat.getContact();
             return {
@@ -1204,11 +1544,28 @@ io.on('connection', (socket) => {
         }));
         
         const validChats = chatList.filter(chat => chat !== null);
-        console.log(`Enviando ${validChats.length} chats válidos para o frontend`);
-        socket.emit('chats_loaded', validChats);
+        console.log(`Enviando ${validChats.length} chats válidos (${offset}-${offset + limit} de ${chats.length} totais) para o frontend`);
+        
+        socket.emit('chats_loaded', {
+          chats: validChats,
+          pagination: {
+            total: chats.length,
+            offset: offset,
+            limit: limit,
+            hasMore: (offset + limit) < chats.length
+          }
+        });
       } else {
         console.log(`WhatsApp não está pronto para usuário ${userSession.apiKey.slice(-8)}`);
-        socket.emit('chats_loaded', []);
+        socket.emit('chats_loaded', {
+          chats: [],
+          pagination: {
+            total: 0,
+            offset: 0,
+            limit: 20,
+            hasMore: false
+          }
+        });
       }
     } catch (error) {
       console.error(`Erro ao carregar chats (usuário ${userSession.apiKey.slice(-8)}):`, error);
@@ -1229,6 +1586,17 @@ io.on('connection', (socket) => {
       return;
     }
     
+    // Verificar se WhatsApp está pronto e se chatId é válido
+    if (!userSession.isClientReady || !userSession.whatsappClient || !chatId) {
+      console.log(`Condições não atendidas para carregar mensagens (usuário ${userSession.apiKey.slice(-8)}):`, {
+        isClientReady: userSession.isClientReady,
+        hasClient: !!userSession.whatsappClient,
+        chatId
+      });
+      socket.emit('messages_error', 'WhatsApp não está conectado ou chat inválido');
+      return;
+    }
+    
     // Throttling para evitar sobrecarga - máximo 1 requisição por segundo por usuário
     const now = Date.now();
     if (!userSession.lastMessageRequest || (now - userSession.lastMessageRequest) < 1000) {
@@ -1240,43 +1608,40 @@ io.on('connection', (socket) => {
     userSession.lastMessageRequest = now;
     
     try {
-      if (userSession.isClientReady && userSession.whatsappClient) {
-        console.log(`Carregando mensagens para chat (usuário ${userSession.apiKey.slice(-8)}):`, chatId);
-        const chat = await userSession.whatsappClient.getChatById(chatId);
-        const messages = await chat.fetchMessages({ limit: 50 });
-        
-        const messageList = await Promise.all(messages.map(async (msg) => {
-          try {
-            const contact = await msg.getContact();
-            return {
-              id: msg.id._serialized,
-              from: msg.from,
-              to: msg.to,
-              body: msg.body || '',
-              timestamp: msg.timestamp * 1000, // Converter para milliseconds
-              fromMe: msg.fromMe,
-              type: msg.type,
-              contact: {
-                name: contact.name || contact.pushname || contact.number,
-                number: contact.number,
-                profilePicUrl: contact.profilePicUrl
-              }
-            };
-          } catch (msgError) {
-            console.error('Erro ao processar mensagem individual:', msgError);
-            return null;
-          }
-        }));
-        
-        // Filtrar mensagens nulas e ordenar por timestamp
-        const validMessages = messageList.filter(msg => msg !== null)
-          .sort((a, b) => a.timestamp - b.timestamp);
-        
-        console.log(`Enviando ${validMessages.length} mensagens para o frontend (usuário ${userSession.apiKey.slice(-8)})`);
-        socket.emit('messages_loaded', validMessages);
-      } else {
-        socket.emit('messages_error', 'WhatsApp não está conectado');
-      }
+      console.log(`Carregando mensagens do PostgreSQL para chat (usuário ${userSession.apiKey.slice(-8)}):`, chatId);
+      
+      // Buscar mensagens do PostgreSQL
+      const messages = await postgresManager.getMessages(chatId, 50);
+      
+      // Converter formato do PostgreSQL para o formato esperado pelo frontend
+       const messageList = messages.map(msg => {
+         try {
+           return {
+             id: msg.message_id,
+             from: msg.chat_id,
+             to: msg.to_user || msg.chat_id,
+             body: msg.content || '',
+             timestamp: new Date(msg.timestamp).getTime(),
+             fromMe: msg.is_from_me,
+             type: msg.message_type || 'text',
+             contact: {
+               name: msg.from_user,
+               number: msg.from_user,
+               profilePicUrl: null
+             }
+           };
+         } catch (msgError) {
+           console.error('Erro ao processar mensagem individual:', msgError);
+           return null;
+         }
+       });
+       
+       // Filtrar mensagens nulas e ordenar por timestamp (mais recentes primeiro)
+       const validMessages = messageList.filter(msg => msg !== null)
+         .sort((a, b) => b.timestamp - a.timestamp);
+       
+       console.log(`Enviando ${validMessages.length} mensagens do PostgreSQL para o frontend (usuário ${userSession.apiKey.slice(-8)})`);
+       socket.emit('messages_loaded', validMessages);
     } catch (error) {
       console.error(`Erro ao carregar mensagens (usuário ${userSession.apiKey.slice(-8)}):`, error);
       socket.emit('messages_error', error.message);
@@ -1360,29 +1725,61 @@ io.on('connection', (socket) => {
     try {
       const { message, sessionId, context } = data;
       
+      // Preparar contexto detalhado das mensagens do WhatsApp
+      let whatsappContext = '';
+      if (context.selectedChat && context.messages && context.messages.length > 0) {
+        const recentMessages = context.messages.slice(-10);
+        whatsappContext = `\n**MENSAGENS RECENTES DO CHAT "${context.selectedChat.name}":**\n`;
+        recentMessages.forEach(msg => {
+          const sender = msg.from_me ? 'Você' : context.selectedChat.name;
+          const time = new Date(msg.timestamp).toLocaleTimeString('pt-BR');
+          whatsappContext += `[${time}] ${sender}: ${msg.body}\n`;
+        });
+      }
+      
       // Preparar contexto para o assistente pessoal
-      const contextPrompt = `Você é um assistente pessoal inteligente e versátil.
+      const contextPrompt = `Você é o VexPro, assistente pessoal inteligente da plataforma AI Central.
 
-**CONTEXTO DO WHATSAPP:**
+**SUAS CAPACIDADES:**
+- 📱 Acesso de leitura às conversas do WhatsApp conectado
+- 🔍 Pesquisa na internet (clima, cotações, notícias, etc.)
+- 💡 Análise e insights sobre conversas
+- 🎯 Sugestões de resposta para atendimento
+- 📊 Relatórios e estatísticas
+- ❓ Ajuda com uso da plataforma
+
+**CONTEXTO ATUAL:**
 - Chat selecionado: ${context.selectedChat?.name || 'Nenhum'}
-- Mensagens recentes: ${context.messages?.length || 0}
+- Mensagens no chat: ${context.messages?.length || 0}
 - Total de chats: ${context.chats?.length || 0}
+- Status WhatsApp: ${context.whatsappReady ? 'Conectado' : 'Desconectado'}
+${whatsappContext}
+
+**CONHECIMENTO DA PLATAFORMA AI CENTRAL:**
+- Para conectar WhatsApp: Escaneie o QR Code na aba "WhatsApp"
+- Para configurar agente: Use o ícone de engrenagem nas configurações
+- Templates disponíveis: E-commerce, Restaurante, Saúde, Serviços, Educação
+- Comandos do agente: /on (ativar), /off (desativar), /pause (pausar contato)
+- Modo humano: Clique no botão para assumir controle manual da conversa
 
 **INSTRUÇÕES:**
-- Responda de forma útil e informativa
-- Forneça análises e insights quando solicitado
-- Seja conversacional e amigável
-- Adapte-se ao contexto da conversa
-- Funciona independente do WhatsApp
+- Seja SEMPRE conciso e direto
+- Responda apenas o que foi perguntado
+- Use emojis moderadamente
+- Seja humanizado e natural
+- Para pesquisas na internet, use suas capacidades de busca
+- Analise conversas quando solicitado
+- Sugira respostas quando apropriado
+- Uma resposta por vez, uma pergunta por vez
 
-Você pode ajudar com análises, perguntas gerais, insights sobre conversas e qualquer assunto.`;
+Responda de forma útil, prática e objetiva.`;
       
       // Usar sessionId único do socket para isolamento
       const socketSession = socketSessions.get(socket.id);
-      const uniqueSessionId = socketSession ? `userAssistant_${socketSession.sessionId}` : `userAssistant_${userSession.apiKey.slice(-8)}`;
+      const uniqueSessionId = socketSession ? `vexpro_${socketSession.sessionId}` : `vexpro_${userSession.apiKey.slice(-8)}`;
       
       const response = await callAICentral(
-        `${contextPrompt}\n\nPergunta: ${message}`,
+        `${contextPrompt}\n\nPergunta do usuário: ${message}`,
         uniqueSessionId,
         userSession.apiKey
       );
@@ -1396,7 +1793,7 @@ Você pode ajudar com análises, perguntas gerais, insights sobre conversas e qu
     } catch (error) {
       console.error('Erro no assistente pessoal:', error);
       socket.emit('user-assistant-response', {
-        content: 'Desculpe, ocorreu um erro no assistente pessoal. Tente novamente.',
+        content: 'Ops! Algo deu errado. Tente novamente.',
         timestamp: new Date(),
         type: 'assistant',
         error: true
@@ -1504,25 +1901,43 @@ Mantenha um tom natural e amigável, como se fosse uma pessoa real respondendo.`
   });
 
   // Configuração de agentes
-  socket.on('save-agent-config', (config) => {
+  socket.on('save-agent-config', async (config) => {
     if (!userSession) {
       socket.emit('error', { message: 'Usuário não autenticado' });
       return;
     }
     
     try {
-      // Atualizar configuração do agente
+      // Atualizar configuração do agente na sessão
       Object.assign(userSession.agentConfig, config);
       
-      // Salvar no mapa global para persistência
-      agentConfigs.set(userSession.apiKey, { ...userSession.agentConfig });
+      // Salvar no banco de dados PostgreSQL
+      if (isPostgresReady) {
+        const userPhone = userSession.apiKey; // Usando API key como identificador único
+        
+        // Salvar cada configuração individualmente
+        for (const [key, value] of Object.entries(config)) {
+          const query = `
+            INSERT INTO agent_configs (user_phone, config_key, config_value, updated_at)
+            VALUES ($1, $2, $3, NOW())
+            ON CONFLICT (user_phone, config_key)
+            DO UPDATE SET config_value = $3, updated_at = NOW()
+          `;
+          
+          await postgresManager.query(query, [userPhone, key, JSON.stringify(value)]);
+        }
+        
+        console.log(`Configuração do agente salva no banco para usuário ${userSession.apiKey.slice(-8)}:`, config);
+      } else {
+        // Fallback para mapa em memória se PostgreSQL não estiver disponível
+        agentConfigs.set(userSession.apiKey, { ...userSession.agentConfig });
+        console.log(`Configuração do agente salva em memória para usuário ${userSession.apiKey.slice(-8)}:`, config);
+      }
       
       // Atualizar status do agente se necessário
       if (config.enabled !== undefined) {
         userSession.agentEnabled = config.enabled;
       }
-      
-      console.log(`Configuração do agente salva para usuário ${userSession.apiKey.slice(-8)}:`, config);
       
       // Notificar todos os sockets da sessão
       userSession.broadcast('agent-config-updated', { config: userSession.agentConfig });
@@ -1534,13 +1949,50 @@ Mantenha um tom natural e amigável, como se fosse uma pessoa real respondendo.`
     }
   });
   
-  socket.on('get-agent-config', () => {
+  socket.on('get-agent-config', async () => {
     if (!userSession) {
       socket.emit('error', { message: 'Usuário não autenticado' });
       return;
     }
     
-    socket.emit('agent-config-updated', { config: userSession.agentConfig });
+    try {
+      let savedConfig = {};
+      
+      // Tentar carregar do banco de dados PostgreSQL primeiro
+      if (isPostgresReady) {
+        const userPhone = userSession.apiKey;
+        const query = 'SELECT config_key, config_value FROM agent_configs WHERE user_phone = $1';
+        const result = await postgresManager.query(query, [userPhone]);
+        
+        if (result.rows && result.rows.length > 0) {
+          // Reconstruir objeto de configuração a partir dos registros do banco
+          for (const row of result.rows) {
+            try {
+              savedConfig[row.config_key] = JSON.parse(row.config_value);
+            } catch (parseError) {
+              console.error(`Erro ao fazer parse da configuração ${row.config_key}:`, parseError);
+              savedConfig[row.config_key] = row.config_value; // Usar valor bruto se JSON parse falhar
+            }
+          }
+          console.log(`Configuração do agente carregada do banco para usuário ${userSession.apiKey.slice(-8)}:`, savedConfig);
+        }
+      } else {
+        // Fallback para mapa em memória
+        savedConfig = agentConfigs.get(userSession.apiKey) || {};
+        console.log(`Configuração do agente carregada da memória para usuário ${userSession.apiKey.slice(-8)}:`, savedConfig);
+      }
+      
+      // Atualizar a configuração da sessão com a configuração salva
+      if (Object.keys(savedConfig).length > 0) {
+        Object.assign(userSession.agentConfig, savedConfig);
+      }
+      
+      socket.emit('agent-config-updated', { config: userSession.agentConfig });
+      
+    } catch (error) {
+      console.error('Erro ao carregar configuração do agente:', error);
+      socket.emit('error', { message: 'Erro ao carregar configuração' });
+    }
   });
   
   // Handler para updateAgentConfig (usado pelo AgentConfigModal)
@@ -1617,12 +2069,36 @@ Mantenha um tom natural e amigável, como se fosse uma pessoa real respondendo.`
     
     try {
       if (userSession.whatsappClient) {
+        console.log(`🔌 Desconectando WhatsApp e limpando cache por solicitação do usuário ${userSession.apiKey.slice(-8)}`);
+        
+        // Marcar como desconexão intencional para limpeza completa
+        userSession.intentionalDisconnect = true;
+        
+        // Destruir cliente WhatsApp
         await userSession.whatsappClient.destroy();
+        
+        // Limpeza completa de cache e memória
         await cleanupWhatsAppSession(userSession);
-        console.log(`WhatsApp desconectado pelo usuário ${userSession.apiKey.slice(-8)}`);
+        
+        // Emitir confirmação de desconexão com limpeza
+        socket.emit('whatsapp_disconnected_with_cleanup', { 
+          success: true, 
+          message: 'WhatsApp desconectado e cache limpo com sucesso' 
+        });
+        
+        console.log(`✅ WhatsApp desconectado e cache limpo para usuário ${userSession.apiKey.slice(-8)}`);
+      } else {
+        socket.emit('whatsapp_disconnected_with_cleanup', { 
+          success: false, 
+          message: 'WhatsApp não estava conectado' 
+        });
       }
     } catch (error) {
-      console.error(`Erro ao desconectar WhatsApp (usuário ${userSession.apiKey.slice(-8)}):`, error);
+      console.error(`❌ Erro ao desconectar WhatsApp (usuário ${userSession.apiKey.slice(-8)}):`, error);
+      socket.emit('whatsapp_disconnected_with_cleanup', { 
+        success: false, 
+        message: 'Erro ao desconectar WhatsApp' 
+      });
     }
   });
 
@@ -1708,7 +2184,9 @@ app.post('/api/validate-key', async (req, res) => {
 app.get('/api/messages/:chatId', async (req, res) => {
   try {
     const { chatId } = req.params;
-    const messages = await getMessageHistory(chatId);
+    const messages = isPostgresReady 
+      ? await postgresManager.getMessageHistory(chatId)
+      : await getMessageHistory(chatId);
     res.json(messages);
   } catch (error) {
     console.error('Erro ao buscar mensagens:', error);
@@ -1718,7 +2196,9 @@ app.get('/api/messages/:chatId', async (req, res) => {
 
 app.get('/api/contacts', async (req, res) => {
   try {
-    const contacts = await getContacts();
+    const contacts = isPostgresReady 
+      ? await postgresManager.getContacts()
+      : await getContacts();
     res.json(contacts);
   } catch (error) {
     console.error('Erro ao buscar contatos:', error);
@@ -1761,7 +2241,7 @@ app.get('*', (req, res) => {
 
 // Configuração da porta
 const PORT = config.server?.port || process.env.PORT || 3001;
-const HOST = config.server?.host || '0.0.0.0';
+const HOST = config.server?.host || process.env.HOST || '0.0.0.0';
 
 // Inicializar servidor com configurações de produção
 server.listen(PORT, HOST, () => {
@@ -1786,6 +2266,17 @@ process.on('uncaughtException', (error) => {
 });
 
 process.on('unhandledRejection', (reason, promise) => {
+  // Filtrar erros conhecidos do WhatsApp Web que não são críticos
+  if (reason && reason.message && reason.message.includes('Target closed')) {
+    console.log('⚠️ Sessão WhatsApp encerrada (Target closed) - comportamento normal');
+    return;
+  }
+  
+  if (reason && reason.message && reason.message.includes('Protocol error')) {
+    console.log('⚠️ Erro de protocolo WhatsApp - reconectando automaticamente');
+    return;
+  }
+  
   logger.error(`Promise rejeitada não tratada: ${reason}`);
   logger.error(`Promise: ${promise}`);
 });

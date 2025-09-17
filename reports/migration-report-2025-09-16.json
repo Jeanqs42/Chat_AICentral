@@ -1,0 +1,14 @@
+{
+  "messages": {
+    "total": 203,
+    "migrated": 0,
+    "errors": 203
+  },
+  "contacts": {
+    "total": 8,
+    "migrated": 0,
+    "errors": 8
+  },
+  "startTime": "2025-09-16T05:20:14.091Z",
+  "endTime": "2025-09-16T05:20:18.704Z"
+}

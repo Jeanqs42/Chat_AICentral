@@ -1,15 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, Bot, Save, X, FileText } from 'lucide-react';
-import AgentTemplates from './AgentTemplates';
+import { Settings, Bot, Save, X, FileText, Cog } from 'lucide-react';
 
 const AgentSettings = ({ socket, isOpen, onClose }) => {
+  const [activeTab, setActiveTab] = useState('config');
   const [agentConfig, setAgentConfig] = useState({
     name: 'Assistente Virtual',
     personality: 'profissional',
     prompt: '',
     welcomeMessage: 'Olá! Como posso ajudá-lo hoje?',
     awayMessage: 'Obrigado pela mensagem! Retornaremos em breve.',
-    autoReply: true,
     respondToGroups: false,
     autoGreeting: true,
     responseDelay: 2000,
@@ -20,6 +19,7 @@ const AgentSettings = ({ socket, isOpen, onClose }) => {
     ignoreForwardedMessages: true,
     ignoreMediaMessages: false,
     rateLimitWindow: 60,
+    enableTextCommands: true,
     workingHours: {
       enabled: false,
       start: '09:00',
@@ -28,9 +28,87 @@ const AgentSettings = ({ socket, isOpen, onClose }) => {
     },
     keywords: []
   });
-  const [showTemplates, setShowTemplates] = useState(false);
 
-
+  const [templates] = useState([
+    {
+      id: 'ecommerce',
+      name: 'E-commerce',
+      description: 'Ideal para lojas online e vendas',
+      icon: '🛒',
+      config: {
+        name: 'Assistente de Vendas',
+        personality: 'amigavel',
+        welcomeMessage: 'Olá! Bem-vindo à nossa loja! Como posso ajudá-lo hoje? 😊',
+        awayMessage: 'Obrigado pelo interesse! Nossa equipe retornará em breve para ajudá-lo com sua compra.',
+        prompt: 'Você é um assistente de vendas especializado em e-commerce. Seja prestativo, entusiasmado e focado em ajudar o cliente a encontrar o que precisa. Sempre pergunte sobre preferências, tamanhos, cores e ofereça produtos relacionados. Mantenha um tom amigável e use emojis apropriados.'
+      }
+    },
+    {
+      id: 'restaurant',
+      name: 'Restaurante',
+      description: 'Para restaurantes e delivery',
+      icon: '🍕',
+      config: {
+        name: 'Atendente do Restaurante',
+        personality: 'amigavel',
+        welcomeMessage: 'Olá! Bem-vindo ao nosso restaurante! Posso ajudá-lo com seu pedido? 🍽️',
+        awayMessage: 'Obrigado pelo contato! Estamos fora do horário de funcionamento, mas retornaremos em breve.',
+        prompt: 'Você é um atendente de restaurante. Seja cordial, eficiente e conhecedor do cardápio. Ajude com pedidos, tire dúvidas sobre pratos, ingredientes e tempo de entrega. Sempre confirme os detalhes do pedido e endereço de entrega.'
+      }
+    },
+    {
+      id: 'healthcare',
+      name: 'Saúde',
+      description: 'Para clínicas e consultórios',
+      icon: '🏥',
+      config: {
+        name: 'Assistente de Saúde',
+        personality: 'profissional',
+        welcomeMessage: 'Olá! Como posso ajudá-lo com seu agendamento ou dúvida médica?',
+        awayMessage: 'Obrigado pelo contato. Nossa equipe médica retornará em breve.',
+        prompt: 'Você é um assistente de uma clínica médica. Seja profissional, empático e cuidadoso. Ajude com agendamentos, tire dúvidas sobre procedimentos e horários. NUNCA dê conselhos médicos específicos, sempre direcione para consulta com profissional.'
+      }
+    },
+    {
+      id: 'services',
+      name: 'Serviços',
+      description: 'Para prestadores de serviços',
+      icon: '🔧',
+      config: {
+        name: 'Assistente de Serviços',
+        personality: 'profissional',
+        welcomeMessage: 'Olá! Como posso ajudá-lo com nossos serviços hoje?',
+        awayMessage: 'Obrigado pelo interesse em nossos serviços. Retornaremos em breve.',
+        prompt: 'Você é um assistente de uma empresa de serviços. Seja profissional, detalhista e focado em entender as necessidades do cliente. Colete informações sobre o serviço desejado, localização, urgência e forneça orçamentos quando possível.'
+      }
+    },
+    {
+      id: 'education',
+      name: 'Educação',
+      description: 'Para escolas e cursos',
+      icon: '📚',
+      config: {
+        name: 'Assistente Educacional',
+        personality: 'profissional',
+        welcomeMessage: 'Olá! Como posso ajudá-lo com informações sobre nossos cursos?',
+        awayMessage: 'Obrigado pelo interesse em nossa instituição. Retornaremos em breve.',
+        prompt: 'Você é um assistente educacional. Seja informativo, paciente e motivador. Ajude com informações sobre cursos, matrículas, horários e metodologia. Sempre incentive o aprendizado e esclareça dúvidas acadêmicas.'
+      }
+    },
+    {
+      id: 'custom',
+      name: 'Personalizado',
+      description: 'Configure do zero',
+      icon: '⚙️',
+      config: {
+        name: 'Assistente Virtual',
+        personality: 'profissional',
+        welcomeMessage: 'Olá! Como posso ajudá-lo hoje?',
+        awayMessage: 'Obrigado pela mensagem! Retornaremos em breve.',
+        prompt: ''
+      }
+    }
+  ]);
 
   const personalityOptions = [
     { value: 'profissional', label: 'Profissional' },
@@ -39,14 +117,14 @@ const AgentSettings = ({ socket, isOpen, onClose }) => {
   ];
 
   const ToggleSwitch = ({ enabled, onChange, label, description }) => (
-    <div className="flex items-center justify-between p-4 bg-white rounded-lg border border-gray-200">
-      <div>
-        <h4 className="font-medium text-gray-900">{label}</h4>
-        {description && <p className="text-sm text-gray-500 mt-1">{description}</p>}
+    <div className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200">
+      <div className="flex-1">
+        <div className="font-medium text-gray-900">{label}</div>
+        {description && <div className="text-sm text-gray-500">{description}</div>}
       </div>
       <button
         onClick={onChange}
-        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
           enabled ? 'bg-blue-600' : 'bg-gray-200'
         }`}
       >
@@ -58,80 +136,86 @@ const AgentSettings = ({ socket, isOpen, onClose }) => {
       </button>
     </div>
   );
-  useEffect(() => {
-    if (socket) {
-      socket.on('agent_config_loaded', (data) => {
-        setAgentConfig(prev => ({ ...prev, ...data.config }));
-      });
 
+  useEffect(() => {
+    if (socket && isOpen) {
+      socket.emit('getAgentConfig');
+      
+      const handleConfigUpdate = (config) => {
+        setAgentConfig(config);
+      };
+
+      socket.on('agentConfigUpdated', handleConfigUpdate);
+      
       return () => {
-        socket.off('agent_config_loaded');
+        socket.off('agentConfigUpdated', handleConfigUpdate);
       };
     }
-  }, [socket]);
+  }, [socket, isOpen]);
 
-  const handleSave = () => {
-    socket.emit('save_agent_config', agentConfig);
-    onClose();
+  const applyTemplate = (template) => {
+    setAgentConfig(prev => ({
+      ...prev,
+      ...template.config
+    }));
   };
 
-  const handleApplyTemplate = (template) => {
-    setAgentConfig(prevConfig => ({
-      ...prevConfig,
-      name: template.name,
-      personality: template.personality,
-      prompt: template.prompt,
-      welcomeMessage: template.welcomeMessage,
-      awayMessage: template.awayMessage,
-      autoReply: template.autoReply,
-      respondToGroups: template.respondToGroups,
-      autoGreeting: template.autoGreeting,
-      responseDelay: template.responseDelay,
-      maxResponseLength: template.maxResponseLength,
-      rateLimitPerContact: template.rateLimitPerContact,
-      workingHours: template.workingHours,
-      keywords: template.keywords || []
-    }));
+  const saveConfig = () => {
+    if (socket) {
+      socket.emit('updateAgentConfig', agentConfig);
+      onClose();
+    }
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <div className="flex items-center space-x-3">
-            <Bot className="w-6 h-6 text-blue-600" />
-            <h2 className="text-xl font-semibold">⚙️ Configurações do Agente</h2>
+            <Bot className="h-6 w-6 text-blue-600" />
+            <h2 className="text-xl font-semibold text-gray-900">Configurações do Agente</h2>
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+            className="text-gray-400 hover:text-gray-600 transition-colors"
           >
-            <X className="w-5 h-5" />
+            <X className="h-6 w-6" />
           </button>
         </div>
 
-        {/* Header Tab */}
-        <div className="flex items-center justify-between border-b border-gray-200">
-          <div className="px-6 py-3 text-sm font-medium text-blue-600 border-b-2 border-blue-600 bg-blue-50">
-            ⚙️ Configurações Gerais
-          </div>
-          <div className="px-6 py-3">
-            <button
-              onClick={() => setShowTemplates(true)}
-              className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm"
-            >
-              <FileText className="w-4 h-4" />
-              <span>🤖 Templates Prontos</span>
-            </button>
-          </div>
+        {/* Tabs */}
+        <div className="flex border-b border-gray-200">
+          <button
+            onClick={() => setActiveTab('config')}
+            className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'config'
+                ? 'text-blue-600 border-blue-600 bg-blue-50'
+                : 'text-gray-500 border-transparent hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <Cog className="h-4 w-4 inline mr-2" />
+            Configurações Gerais
+          </button>
+          <button
+            onClick={() => setActiveTab('templates')}
+            className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'templates'
+                ? 'text-blue-600 border-blue-600 bg-blue-50'
+                : 'text-gray-500 border-transparent hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <FileText className="h-4 w-4 inline mr-2" />
+            Templates
+          </button>
         </div>
 
         {/* Content */}
         <div className="p-6 overflow-y-auto flex-1 min-h-0">
-          <div className="space-y-6">
+          {activeTab === 'config' && (
+            <div className="space-y-6">
               {/* Informações Básicas */}
               <div className="bg-gray-50 p-4 rounded-lg">
                 <h3 className="text-lg font-medium text-gray-900 mb-4">👤 Informações do Agente</h3>
@@ -205,126 +289,32 @@ const AgentSettings = ({ socket, isOpen, onClose }) => {
                 </div>
               </div>
 
-              {/* Comportamento Básico */}
+              {/* Controle do Agente */}
               <div className="bg-green-50 p-4 rounded-lg">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">🤖 Comportamento</h3>
+                <h3 className="text-lg font-medium text-gray-900 mb-4">🎮 Controle do Agente</h3>
                 
                 <div className="space-y-3">
                   <ToggleSwitch
-                    enabled={agentConfig.autoReply}
-                    onChange={() => setAgentConfig(prev => ({ ...prev, autoReply: !prev.autoReply }))}
-                    label="Resposta Automática"
-                    description="Responder automaticamente às mensagens recebidas"
+                    enabled={agentConfig.enableTextCommands}
+                    onChange={() => setAgentConfig(prev => ({ ...prev, enableTextCommands: !prev.enableTextCommands }))}
+                    label="Comandos por Texto"
+                    description="Permitir ativar/desativar agente com /on e /off no WhatsApp"
                   />
                   
-                  <ToggleSwitch
-                    enabled={agentConfig.autoGreeting}
-                    onChange={() => setAgentConfig(prev => ({ ...prev, autoGreeting: !prev.autoGreeting }))}
-                    label="Saudação Automática"
-                    description="Enviar mensagem de boas-vindas automaticamente"
-                  />
-                  
-
-                  
-                  <ToggleSwitch
-                    enabled={agentConfig.pauseAfterHuman}
-                    onChange={() => setAgentConfig(prev => ({ ...prev, pauseAfterHuman: !prev.pauseAfterHuman }))}
-                    label="Pausar Após Atendimento Humano"
-                    description="Pausar agente automaticamente quando um humano responder"
-                  />
-                  
-                  {agentConfig.pauseAfterHuman && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Duração da Pausa (horas)</label>
-                      <input
-                        type="number"
-                        min="1"
-                        max="168"
-                        value={agentConfig.pauseDurationHours}
-                        onChange={(e) => setAgentConfig(prev => ({ ...prev, pauseDurationHours: parseInt(e.target.value) || 12 }))}
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Tempo em horas para pausar o agente após intervenção humana</p>
+                  <div className="bg-white p-3 rounded border border-green-200">
+                    <div className="text-sm text-gray-700">
+                      <p className="font-medium mb-1">📋 Comandos Disponíveis</p>
+                      <p className="text-xs text-gray-600">
+                        • <strong>/on</strong> - Ativa o agente para responder automaticamente
+                      </p>
+                      <p className="text-xs text-gray-600">
+                        • <strong>/off</strong> - Desativa o agente (pausa as respostas automáticas)
+                      </p>
                     </div>
-                  )}
-                  
-                  <ToggleSwitch
-                    enabled={agentConfig.ignoreForwardedMessages}
-                    onChange={() => setAgentConfig(prev => ({ ...prev, ignoreForwardedMessages: !prev.ignoreForwardedMessages }))}
-                    label="Ignorar Mensagens Encaminhadas"
-                    description="Não responder automaticamente a mensagens que foram encaminhadas"
-                  />
-                  
-                  <ToggleSwitch
-                    enabled={!agentConfig.ignoreMediaMessages}
-                    onChange={() => setAgentConfig(prev => ({ ...prev, ignoreMediaMessages: !prev.ignoreMediaMessages }))}
-                    label="Responder a Mensagens de Mídia"
-                    description="Permitir respostas automáticas para imagens, vídeos e documentos"
-                  />
-                </div>
-              </div>
-              
-              {/* Configurações de Performance */}
-              <div className="bg-yellow-50 p-4 rounded-lg">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">⚡ Performance e Limites</h3>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Delay de Resposta (ms)</label>
-                    <input
-                      type="number"
-                      value={agentConfig.responseDelay}
-                      onChange={(e) => setAgentConfig(prev => ({ ...prev, responseDelay: parseInt(e.target.value) || 2000 }))}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      min="500"
-                      max="10000"
-                      step="500"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Tempo de espera antes de responder (500-10000ms)</p>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Máximo de Caracteres</label>
-                    <input
-                      type="number"
-                      value={agentConfig.maxResponseLength}
-                      onChange={(e) => setAgentConfig(prev => ({ ...prev, maxResponseLength: parseInt(e.target.value) || 500 }))}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      min="100"
-                      max="2000"
-                      step="50"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Limite de caracteres por resposta</p>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Limite por Contato/Hora</label>
-                    <input
-                      type="number"
-                      value={agentConfig.rateLimitPerContact}
-                      onChange={(e) => setAgentConfig(prev => ({ ...prev, rateLimitPerContact: parseInt(e.target.value) || 5 }))}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      min="1"
-                      max="50"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Máximo de respostas por contato por hora</p>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Horas de Pausa</label>
-                    <input
-                      type="number"
-                      value={agentConfig.pauseDurationHours}
-                      onChange={(e) => setAgentConfig(prev => ({ ...prev, pauseDurationHours: parseInt(e.target.value) || 12 }))}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      min="1"
-                      max="72"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Tempo de pausa após atendimento humano</p>
                   </div>
                 </div>
               </div>
-              
+
               {/* Horário de Funcionamento */}
               <div className="bg-purple-50 p-4 rounded-lg">
                 <h3 className="text-lg font-medium text-gray-900 mb-4">🕒 Horário de Funcionamento</h3>
@@ -367,29 +357,60 @@ const AgentSettings = ({ socket, isOpen, onClose }) => {
                           className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         />
                       </div>
-                      
-                      <div className="md:col-span-2">
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Fuso Horário</label>
-                        <select
-                          value={agentConfig.workingHours.timezone}
-                          onChange={(e) => setAgentConfig(prev => ({ 
-                            ...prev, 
-                            workingHours: { ...prev.workingHours, timezone: e.target.value }
-                          }))}
-                          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        >
-                          <option value="America/Sao_Paulo">Brasília (GMT-3)</option>
-                          <option value="America/New_York">Nova York (GMT-5)</option>
-                          <option value="Europe/London">Londres (GMT+0)</option>
-                          <option value="Europe/Paris">Paris (GMT+1)</option>
-                          <option value="Asia/Tokyo">Tóquio (GMT+9)</option>
-                        </select>
-                      </div>
                     </div>
                   )}
                 </div>
               </div>
-              
+
+              {/* Configurações de Atendimento */}
+              <div className="bg-orange-50 p-4 rounded-lg">
+                <h3 className="text-lg font-medium text-gray-900 mb-4">🤝 Configurações de Atendimento</h3>
+                
+                <div className="space-y-4">
+                  <ToggleSwitch
+                    enabled={agentConfig.pauseAfterHuman}
+                    onChange={() => setAgentConfig(prev => ({ ...prev, pauseAfterHuman: !prev.pauseAfterHuman }))}
+                    label="Parar após Humano Assumir"
+                    description="Pausar agente automaticamente quando um humano assumir o atendimento"
+                  />
+                  
+                  {agentConfig.pauseAfterHuman && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Duração da Pausa (horas)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="72"
+                        value={agentConfig.pauseDurationHours}
+                        onChange={(e) => setAgentConfig(prev => ({ ...prev, pauseDurationHours: parseInt(e.target.value) || 12 }))}
+                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="12"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Tempo em horas que o agente ficará pausado após humano assumir</p>
+                    </div>
+                  )}
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Intervalos Disponíveis</label>
+                    <select
+                      value={agentConfig.responseDelay}
+                      onChange={(e) => setAgentConfig(prev => ({ ...prev, responseDelay: parseInt(e.target.value) }))}
+                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value={1000}>1 segundo</option>
+                      <option value={2000}>2 segundos</option>
+                      <option value={3000}>3 segundos</option>
+                      <option value={5000}>5 segundos</option>
+                      <option value={10000}>10 segundos</option>
+                      <option value={15000}>15 segundos</option>
+                      <option value={30000}>30 segundos</option>
+                      <option value={60000}>1 minuto</option>
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">Tempo de espera antes do agente responder às mensagens</p>
+                  </div>
+                </div>
+              </div>
+
               {/* Configurações de Grupos */}
               <div className="bg-green-50 p-4 rounded-lg">
                 <h3 className="text-lg font-medium text-gray-900 mb-4">👥 Configurações de Grupos</h3>
@@ -401,85 +422,59 @@ const AgentSettings = ({ socket, isOpen, onClose }) => {
                     label="Responder em Grupos"
                     description="Ativar/desativar respostas automáticas em todos os grupos do WhatsApp"
                   />
-                  
-                  <div className="bg-white p-3 rounded border border-green-200">
-                    <div className="text-sm text-gray-700">
-                      <p className="font-medium mb-1">📋 Configuração Simplificada</p>
-                      <p className="text-xs text-gray-600">
-                        • <strong>Ativado:</strong> O agente responderá em todos os grupos
-                      </p>
-                      <p className="text-xs text-gray-600">
-                        • <strong>Desativado:</strong> O agente não responderá em nenhum grupo
-                      </p>
-                    </div>
-                  </div>
                 </div>
               </div>
-              
-              {/* Configurações de Rate Limiting */}
-              <div className="bg-orange-50 p-4 rounded-lg">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">⚡ Rate Limiting</h3>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Máximo de Mensagens por Contato</label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="100"
-                      value={agentConfig.rateLimitPerContact}
-                      onChange={(e) => setAgentConfig(prev => ({ ...prev, rateLimitPerContact: parseInt(e.target.value) || 5 }))}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Limite de mensagens por período de tempo</p>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Janela de Tempo (minutos)</label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="1440"
-                      value={agentConfig.rateLimitWindow}
-                      onChange={(e) => setAgentConfig(prev => ({ ...prev, rateLimitWindow: parseInt(e.target.value) || 60 }))}
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Período em minutos para o rate limit</p>
-                  </div>
-                </div>
-              </div>
-              
-              {/* Configurações de Palavras-chave */}
-              <div className="bg-indigo-50 p-4 rounded-lg">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">🔑 Palavras-chave</h3>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Palavras-chave para Ativação</label>
-                  <textarea
-                    value={agentConfig.keywords.join('\n')}
-                    onChange={(e) => setAgentConfig(prev => ({ 
-                      ...prev, 
-                      keywords: e.target.value.split('\n').filter(k => k.trim())
-                    }))}
-                    placeholder="Digite as palavras-chave (uma por linha)\nExemplo:\najuda\nsuporte\ninfo\npreço"
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent h-32 resize-none"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">Deixe vazio para responder a todas as mensagens. Se preenchido, o agente só responderá mensagens que contenham essas palavras</p>
-                </div>
+            </div>
+          )}
+
+          {activeTab === 'templates' && (
+            <div className="space-y-6">
+              <div className="text-center mb-6">
+                <h3 className="text-2xl font-bold text-gray-900 mb-2">🎯 Templates de Agente</h3>
+                <p className="text-gray-600">Escolha um template pré-configurado para seu tipo de negócio</p>
               </div>
 
-            </div>
-            
-            {/* Status do Agente */}
-            <div className="bg-blue-50 p-4 rounded-lg">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">📊 Status</h3>
-              <div className="text-sm text-gray-700">
-                <p>✅ Configurações avançadas disponíveis</p>
-                <p>🤖 Agente com controles de performance</p>
-                <p>💬 Mensagens e horários personalizáveis</p>
-                <p>⚡ Rate limiting e pausas configuráveis</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {templates.map((template) => (
+                  <div
+                    key={template.id}
+                    className="bg-white border-2 border-gray-200 rounded-lg p-6 hover:border-blue-300 hover:shadow-lg transition-all cursor-pointer group"
+                    onClick={() => applyTemplate(template)}
+                  >
+                    <div className="text-center">
+                      <div className="text-4xl mb-3">{template.icon}</div>
+                      <h4 className="text-lg font-semibold text-gray-900 mb-2">{template.name}</h4>
+                      <p className="text-sm text-gray-600 mb-4">{template.description}</p>
+                      
+                      <div className="bg-gray-50 rounded-lg p-3 text-left">
+                        <div className="text-xs text-gray-500 mb-1">Mensagem de boas-vindas:</div>
+                        <div className="text-xs text-gray-700 truncate">"{template.config.welcomeMessage}"</div>
+                      </div>
+                      
+                      <button className="mt-4 w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors group-hover:bg-blue-700">
+                        Usar Template
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div className="flex items-start space-x-3">
+                  <div className="text-yellow-600 text-xl">💡</div>
+                  <div>
+                    <h4 className="font-medium text-yellow-800 mb-1">Como usar os templates</h4>
+                    <ul className="text-sm text-yellow-700 space-y-1">
+                      <li>• Clique em qualquer template para aplicar suas configurações</li>
+                      <li>• Você pode personalizar as configurações após aplicar o template</li>
+                      <li>• Use "Personalizado" para começar do zero</li>
+                      <li>• Lembre-se de salvar suas alterações</li>
+                    </ul>
+                  </div>
+                </div>
               </div>
             </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -491,22 +486,14 @@ const AgentSettings = ({ socket, isOpen, onClose }) => {
             Cancelar
           </button>
           <button
-            onClick={handleSave}
+            onClick={saveConfig}
             className="flex items-center space-x-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
           >
             <Save className="w-4 h-4" />
-            <span>Salvar</span>
+            <span>Salvar Configurações</span>
           </button>
         </div>
       </div>
-      
-      {/* Templates Modal */}
-      {showTemplates && (
-        <AgentTemplates
-          onSelectTemplate={handleApplyTemplate}
-          onClose={() => setShowTemplates(false)}
-        />
-      )}
     </div>
   );
 };

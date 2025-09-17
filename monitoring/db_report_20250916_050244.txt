@@ -1,0 +1,78 @@
+=== RELATÓRIO DE PERFORMANCE DO BANCO DE DADOS ===
+Data/Hora: Tue Sep 16 05:02:44 AM UTC 2025
+Banco: whatsapp_db
+
+=== INFORMAÇÕES GERAIS ===
+       info        |                                                                 valor                                                                  
+-------------------+----------------------------------------------------------------------------------------------------------------------------------------
+ Versão PostgreSQL | PostgreSQL 16.10 (Ubuntu 16.10-0ubuntu0.24.04.1) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0, 64-bit
+ Tamanho do Banco  | 8084 kB
+ Uptime            | 00:05:48.808111
+(3 rows)
+
+
+=== TOP 10 MAIORES TABELAS ===
+ schema |     tabela      | tamanho |  dados  | indices 
+--------+-----------------+---------+---------+---------
+ public | messages        | 56 kB   | 0 bytes | 56 kB
+ public | user_sessions   | 40 kB   | 0 bytes | 40 kB
+ public | system_logs     | 40 kB   | 0 bytes | 40 kB
+ public | statistics      | 32 kB   | 0 bytes | 32 kB
+ public | agent_configs   | 32 kB   | 0 bytes | 32 kB
+ public | paused_contacts | 32 kB   | 0 bytes | 32 kB
+ public | chats           | 16 kB   | 0 bytes | 16 kB
+ public | users           | 16 kB   | 0 bytes | 16 kB
+(8 rows)
+
+
+=== CONEXÕES ATIVAS ===
+Conexões ativas: 1
+Total de conexões: 6
+ state  | quantidade 
+--------+------------
+        |          5
+ active |          1
+(2 rows)
+
+
+=== ATIVIDADE DAS TABELAS ===
+ schemaname |     tabela      | scans_sequenciais | linhas_lidas_seq | scans_indices | linhas_lidas_idx | inserções | atualizações | exclusões 
+------------+-----------------+-------------------+------------------+---------------+------------------+-----------+--------------+-----------
+ public     | paused_contacts |                 4 |                0 |             0 |                0 |         0 |            0 |         0
+ public     | messages        |                11 |                0 |             0 |                0 |         0 |            0 |         0
+ public     | statistics      |                 4 |                0 |             0 |                0 |         0 |            0 |         0
+ public     | user_sessions   |                 5 |                0 |             0 |                0 |         0 |            0 |         0
+ public     | system_logs     |                 4 |                0 |             0 |                0 |         0 |            0 |         0
+ public     | chats           |                 2 |                0 |             0 |                0 |         0 |            0 |         0
+ public     | agent_configs   |                 3 |                0 |             0 |                0 |         0 |            0 |         0
+ public     | users           |                 2 |                0 |             0 |                0 |         0 |            0 |         0
+(8 rows)
+
+
+=== ÍNDICES MAIS UTILIZADOS ===
+ schemaname | tabela | indice | usos | linhas_lidas | linhas_retornadas 
+------------+--------+--------+------+--------------+-------------------
+(0 rows)
+
+
+=== ANÁLISE DE PERFORMANCE ===
+Cache Hit Ratio: 0%
+
+=== USO DE DISCO ===
+Uso do disco PostgreSQL: 8%
+
+=== ESTATÍSTICAS WHATSAPP ===
+        metrica        | valor 
+-----------------------+-------
+ Total de Mensagens    | 0
+ Mensagens Hoje        | 0
+ Mensagens Última Hora | 0
+ Chats Ativos          | 0
+ Usuários Ativos       | 0
+(5 rows)
+
+
+=== RECOMENDAÇÕES ===
+- Encontrados 30 índices não utilizados. Considere removê-los.
+
+=== FIM DO RELATÓRIO ===

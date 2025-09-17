@@ -3,9 +3,10 @@ import { Send, Smile, Paperclip, MoreVertical, Phone, Video, Search, MessageCirc
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
-const ChatArea = ({ selectedChat, messages, onSendMessage, whatsappReady, socket, agentEnabled }) => {
+const ChatArea = ({ selectedChat, messages, onSendMessage, whatsappReady, socket, agentEnabled, agentConfig }) => {
   const [messageText, setMessageText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [aiTyping, setAiTyping] = useState(false);
   const [humanMode, setHumanMode] = useState(false);
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
@@ -18,8 +19,23 @@ const ChatArea = ({ selectedChat, messages, onSendMessage, whatsappReady, socket
         }
       });
 
+      // Escutar eventos de digitação da IA
+      socket.on('ai_typing_start', (data) => {
+        if (selectedChat && data.chatId === selectedChat.id._serialized) {
+          setAiTyping(true);
+        }
+      });
+
+      socket.on('ai_typing_stop', (data) => {
+        if (selectedChat && data.chatId === selectedChat.id._serialized) {
+          setAiTyping(false);
+        }
+      });
+
       return () => {
         socket.off('human-mode-changed');
+        socket.off('ai_typing_start');
+        socket.off('ai_typing_stop');
       };
     }
   }, [socket, selectedChat]);
@@ -151,9 +167,9 @@ const ChatArea = ({ selectedChat, messages, onSendMessage, whatsappReady, socket
   const messageGroups = groupMessagesByDate(messages);
 
   return (
-    <div className="flex-1 flex flex-col bg-gray-50">
+    <div className="flex-1 flex flex-col bg-gray-50 h-full">
       {/* Chat Header */}
-      <div className="chat-header bg-white shadow-sm">
+      <div className="chat-header bg-white shadow-sm p-4 border-b border-gray-200">
         <div className="flex items-center space-x-3">
           <div className="w-10 h-10 bg-gray-300 rounded-full flex items-center justify-center">
             <MessageCircle className="w-5 h-5 text-gray-600" />
@@ -169,22 +185,20 @@ const ChatArea = ({ selectedChat, messages, onSendMessage, whatsappReady, socket
         <div className="flex items-center space-x-2">
           {agentEnabled && (
             <div className="flex items-center space-x-2 mr-2">
-              {/* Simple Agent Status */}
-              {agentEnabled && (
-                <div className="flex flex-col items-center space-y-1">
-                  <div className="flex items-center space-x-1 px-2 py-1 bg-green-100 rounded-full">
-                    <Sparkles className="w-3 h-3 text-green-600" />
-                    <span className="text-xs text-green-700 font-medium">
-                      Agente Ativo
-                    </span>
-                  </div>
-                  <span className="text-xs text-green-600 font-medium">
-                    Assistente IA
+              {/* Agent Status */}
+              <div className="flex flex-col items-center space-y-1">
+                <div className="flex items-center space-x-1 px-3 py-1 bg-green-100 rounded-full">
+                  <Sparkles className="w-3 h-3 text-green-600" />
+                  <span className="text-xs text-green-700 font-medium">
+                    Agente Ativo
                   </span>
                 </div>
-              )}
+                <span className="text-xs text-green-600 font-medium">
+                  {agentConfig?.name || 'Assistente IA'}
+                </span>
+              </div>
               
-              {/* Simple Mode Toggle */}
+              {/* Mode Toggle */}
               <button
                 onClick={toggleHumanMode}
                 className={`p-2 rounded-full transition-colors ${
@@ -192,7 +206,7 @@ const ChatArea = ({ selectedChat, messages, onSendMessage, whatsappReady, socket
                     ? 'bg-blue-100 text-blue-600 hover:bg-blue-200' 
                     : 'bg-green-100 text-green-600 hover:bg-green-200'
                 }`}
-                title={humanMode ? 'Ativar atendimento automático' : 'Ativar atendimento humano'}
+                title={humanMode ? 'Ativar atendimento automático' : 'Assumir atendimento humano'}
               >
                 {humanMode ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
               </button>
@@ -213,15 +227,18 @@ const ChatArea = ({ selectedChat, messages, onSendMessage, whatsappReady, socket
         </div>
       </div>
 
-      {/* Messages Area */}
+      {/* Messages Area - Aproveitando todo o espaço disponível */}
       <div 
-        className="flex-1 overflow-y-auto p-4 flex flex-col scroll-smooth max-h-[calc(100vh-200px)]" 
+        className="flex-1 overflow-y-auto p-4 flex flex-col scroll-smooth"
         style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23f0f0f0' fill-opacity='0.1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`
+          height: 'calc(100vh - 200px)',
+          minHeight: '400px',
+          backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23f0f0f0' fill-opacity='0.1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
+          backgroundRepeat: 'repeat'
         }}
       >
         {/* Spacer para empurrar mensagens para baixo */}
-        <div className="flex-1"></div>
+        <div className="flex-1 min-h-0"></div>
         
         {/* Container das mensagens */}
         <div className="space-y-4">
@@ -270,13 +287,23 @@ const ChatArea = ({ selectedChat, messages, onSendMessage, whatsappReady, socket
           </div>
         ))}
         
-        {isTyping && (
+        {(isTyping || aiTyping) && (
           <div className="flex justify-start">
             <div className="bg-white px-4 py-2 rounded-lg shadow-sm">
-              <div className="flex space-x-1">
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+              <div className="flex items-center space-x-2">
+                {aiTyping && (
+                  <div className="flex items-center space-x-1">
+                    <Bot className="w-3 h-3 text-green-600" />
+                    <span className="text-xs text-green-600 font-medium">
+                      {agentConfig?.name || 'IA'} está digitando
+                    </span>
+                  </div>
+                )}
+                <div className="flex space-x-1">
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                </div>
               </div>
             </div>
           </div>
@@ -286,8 +313,8 @@ const ChatArea = ({ selectedChat, messages, onSendMessage, whatsappReady, socket
         </div>
       </div>
 
-      {/* Message Input */}
-      <div className="chat-footer bg-white">
+      {/* Message Input - Fixo na parte inferior */}
+      <div className="chat-footer bg-white border-t border-gray-200 p-4">
         <div className="flex items-end space-x-3">
           <button className="p-2 hover:bg-gray-100 rounded-full transition-colors">
             <Smile className="w-5 h-5 text-gray-600" />
@@ -322,8 +349,6 @@ const ChatArea = ({ selectedChat, messages, onSendMessage, whatsappReady, socket
           </button>
         </div>
       </div>
-      
-
     </div>
   );
 };

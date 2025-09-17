@@ -3,7 +3,7 @@ import { Search, RefreshCw, MessageCircle, Users, Clock } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
-const Sidebar = ({ chats, selectedChat, onSelectChat, whatsappReady, onRefresh }) => {
+const Sidebar = ({ chats, selectedChat, onSelectChat, whatsappReady, onRefresh, isLoadingChats }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -90,7 +90,13 @@ const Sidebar = ({ chats, selectedChat, onSelectChat, whatsappReady, onRefresh }
 
       {/* Chat List */}
       <div className="flex-1 overflow-y-auto">
-        {filteredChats.length === 0 ? (
+        {isLoadingChats ? (
+          <div className="flex flex-col items-center justify-center h-full text-gray-500">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-whatsapp-primary mb-4"></div>
+            <p className="text-sm font-medium mb-1">Carregando conversas...</p>
+            <p className="text-xs text-center px-4">Aguarde enquanto buscamos seus chats</p>
+          </div>
+        ) : filteredChats.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-gray-500">
             {chats.length === 0 ? (
               <>

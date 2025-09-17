@@ -84,16 +84,30 @@ function EnhancedAgentChat({
         setIsTyping(false);
       });
 
-      // Listener para configuração salva
-      socket.on('agent-config-saved', (config) => {
-        setAgentConfig(config);
+      // Listeners para configuração do agente
+      socket.on('agent-config-saved', (data) => {
+        if (data.config) {
+          setAgentConfig(data.config);
+          console.log('Configuração do agente atualizada:', data.config);
+        }
       });
+
+      socket.on('agent-config-updated', (data) => {
+        if (data.config) {
+          setAgentConfig(data.config);
+          console.log('Configuração do agente carregada:', data.config);
+        }
+      });
+
+      // Solicitar configuração atual do agente
+      socket.emit('get-agent-config');
 
       return () => {
         socket.off('agent-response');
         socket.off('user-assistant-response');
         socket.off('support-agent-response');
         socket.off('agent-config-saved');
+        socket.off('agent-config-updated');
       };
     }
   }, [socket]);
@@ -237,36 +251,13 @@ function EnhancedAgentChat({
         )}
       </div>
 
-      {/* Contexto do WhatsApp */}
+      {/* Contexto compacto do WhatsApp */}
       {selectedWhatsappChat && (
-        <div className="bg-yellow-50 p-3 border-b border-yellow-200">
-          <div className="text-sm text-yellow-800">
-            <strong>📱 Monitorando:</strong> {selectedWhatsappChat.name}
+        <div className="bg-blue-50 px-4 py-2 border-b border-blue-200">
+          <div className="text-xs text-blue-700 flex items-center justify-between">
+            <span><strong>📱</strong> {selectedWhatsappChat.name}</span>
+            <span>{whatsappMessages.length} msgs</span>
           </div>
-          <div className="text-xs text-yellow-700 mt-1">
-            {whatsappMessages.length} mensagens no histórico
-          </div>
-        </div>
-      )}
-
-      {/* Context Panel */}
-      {selectedWhatsappChat && chatAnalysis && (
-        <div className="p-3 bg-green-50 border-b border-green-200">
-          <h3 className="text-sm font-medium text-green-800 mb-2 flex items-center">
-            <MessageSquare className="h-4 w-4 mr-2" />
-            Contexto da Conversa
-          </h3>
-          <div className="grid grid-cols-2 gap-2 text-xs text-green-700">
-            <div>💬 Total: {chatAnalysis.totalMessages}</div>
-            <div>📤 Enviadas: {chatAnalysis.myMessages}</div>
-            <div>📥 Recebidas: {chatAnalysis.userMessages}</div>
-            <div>📈 Status: {chatAnalysis.conversationStatus}</div>
-          </div>
-          {chatAnalysis.lastActivity && (
-            <div className="text-xs text-green-600 mt-2">
-              🕒 Última atividade: {new Date(chatAnalysis.lastActivity).toLocaleTimeString('pt-BR')}
-            </div>
-          )}
         </div>
       )}
 
@@ -312,15 +303,18 @@ function EnhancedAgentChat({
           ))}
 
           {isTyping && (
-            <div className="flex items-start gap-3">
-              <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center">
-                <Bot className="h-4 w-4 text-blue-600" />
-              </div>
-              <div className="bg-gray-100 rounded-2xl rounded-bl-md p-3 max-w-xs">
-                <div className="flex gap-1">
-                  <div className="w-2 h-2 rounded-full bg-gray-500 animate-bounce" />
-                  <div className="w-2 h-2 rounded-full bg-gray-500 animate-bounce" style={{animationDelay: '0.1s'}} />
-                  <div className="w-2 h-2 rounded-full bg-gray-500 animate-bounce" style={{animationDelay: '0.2s'}} />
+            <div className="flex w-full mb-4 justify-start">
+              <div className="flex items-end gap-2 max-w-[70%]">
+                <div className="h-8 w-8 rounded-full bg-gradient-to-r from-purple-500 to-purple-600 shadow-md flex items-center justify-center mb-1">
+                  <Bot className="h-4 w-4 text-white" />
+                </div>
+                <div className="bg-white rounded-2xl px-4 py-3 shadow-lg border border-gray-100 relative">
+                  <div className="absolute bottom-0 left-0 w-0 h-0 border-r-[8px] border-r-white border-t-[8px] border-t-transparent -translate-x-1" />
+                  <div className="flex gap-1">
+                    <div className="w-2 h-2 rounded-full bg-purple-400 animate-bounce" />
+                    <div className="w-2 h-2 rounded-full bg-purple-400 animate-bounce" style={{animationDelay: '0.1s'}} />
+                    <div className="w-2 h-2 rounded-full bg-purple-400 animate-bounce" style={{animationDelay: '0.2s'}} />
+                  </div>
                 </div>
               </div>
             </div>
@@ -377,41 +371,50 @@ function MessageBubble({ message }) {
   const isUser = message.role === 'user';
   
   return (
-    <div className={`flex items-start gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
-      {/* Avatar */}
-      <div className={`h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-        isUser 
-          ? 'bg-gradient-to-br from-blue-600 to-blue-700' 
-          : 'bg-blue-100'
-      }`}>
-        {isUser ? (
-          <User className="h-4 w-4 text-white" />
-        ) : (
-          <Bot className="h-4 w-4 text-blue-600" />
-        )}
-      </div>
-
-      {/* Message Content */}
-      <div className={`flex flex-col max-w-xs sm:max-w-md lg:max-w-lg xl:max-w-xl ${
-        isUser ? 'items-end' : 'items-start'
-      }`}>
-        <div className={`rounded-2xl p-3 shadow-sm ${
-          isUser
-            ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-br-md'
-            : 'bg-gray-100 text-gray-800 rounded-bl-md border border-gray-200'
+    <div className={`flex w-full mb-4 ${isUser ? 'justify-end' : 'justify-start'}`}>
+      <div className={`flex items-end gap-2 max-w-[70%] ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+        {/* Avatar */}
+        <div className={`h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 mb-1 ${
+          isUser 
+            ? 'bg-gradient-to-r from-blue-500 to-blue-600 shadow-md' 
+            : 'bg-gradient-to-r from-purple-500 to-purple-600 shadow-md'
         }`}>
-          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-            {message.content}
-          </p>
+          {isUser ? (
+            <User className="h-4 w-4 text-white" />
+          ) : (
+            <Bot className="h-4 w-4 text-white" />
+          )}
         </div>
-        
-        {/* Timestamp */}
-        <span className="text-xs text-gray-500 mt-1 px-1">
-          {message.timestamp instanceof Date 
-            ? message.timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-            : new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-          }
-        </span>
+
+        {/* Message Content */}
+        <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
+          <div className={`rounded-2xl px-4 py-3 shadow-lg relative ${
+            isUser
+              ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white'
+              : 'bg-white text-gray-800 border border-gray-100'
+          }`}>
+            {/* Seta do balão */}
+            <div className={`absolute bottom-0 w-0 h-0 ${
+              isUser 
+                ? 'right-0 border-l-[8px] border-l-blue-600 border-t-[8px] border-t-transparent translate-x-1'
+                : 'left-0 border-r-[8px] border-r-white border-t-[8px] border-t-transparent -translate-x-1'
+            }`} />
+            
+            <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+              {message.content}
+            </p>
+          </div>
+          
+          {/* Timestamp */}
+          <span className={`text-xs text-gray-400 mt-1 px-2 ${
+            isUser ? 'text-right' : 'text-left'
+          }`}>
+            {message.timestamp instanceof Date 
+              ? message.timestamp.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+              : new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+            }
+          </span>
+        </div>
       </div>
     </div>
   );

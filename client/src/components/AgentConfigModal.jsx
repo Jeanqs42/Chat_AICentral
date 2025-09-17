@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, Copy, Check, Sparkles, Settings, MessageSquare, User, Zap, Bot, Save, RotateCcw } from 'lucide-react';
+import { X, Copy, Check, Sparkles, Settings, MessageSquare, User, Zap, Bot, Save, RotateCcw, Template } from 'lucide-react';
+import AgentTemplates from './AgentTemplates';
 
 const EXAMPLE_PROMPTS = [
   {
@@ -95,6 +96,7 @@ function AgentConfigModal({ isOpen, onClose, socket, currentConfig, onSave }) {
   const [isEnabled, setIsEnabled] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState(null);
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
   const [workingDays, setWorkingDays] = useState({
     monday: true,
     tuesday: true,
@@ -118,6 +120,13 @@ function AgentConfigModal({ isOpen, onClose, socket, currentConfig, onSave }) {
       setIsEnabled(currentConfig.enabled || false);
     }
   }, [currentConfig]);
+
+  const handleTemplateSelect = (template) => {
+    setAgentName(template.name);
+    setAgentPersonality(template.personality);
+    setAgentPrompt(template.prompt);
+    setShowTemplates(false);
+  };
 
   const toggleWorkingDay = (day) => {
     setWorkingDays(prev => ({
@@ -283,7 +292,16 @@ function AgentConfigModal({ isOpen, onClose, socket, currentConfig, onSave }) {
                    <MessageSquare className="h-5 w-5 text-orange-600" />
                  </div>
                  <div className="flex-1">
-                   <h3 className="font-medium text-gray-900 mb-2">Instruções do Agente</h3>
+                   <div className="flex items-center justify-between mb-2">
+                     <h3 className="font-medium text-gray-900">Instruções do Agente</h3>
+                     <button
+                       onClick={() => setShowTemplates(true)}
+                       className="flex items-center space-x-1 px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors"
+                     >
+                       <Template className="w-4 h-4" />
+                       <span>Modelos</span>
+                     </button>
+                   </div>
                    <p className="text-xs text-gray-500 mb-3">
                      Defina como o agente deve se comportar e responder
                    </p>
@@ -432,6 +450,15 @@ function AgentConfigModal({ isOpen, onClose, socket, currentConfig, onSave }) {
           </div>
         </div>
       </div>
+
+      {/* Agent Templates Modal */}
+      {showTemplates && (
+        <AgentTemplates
+          onSelectTemplate={handleTemplateSelect}
+          onClose={() => setShowTemplates(false)}
+          currentConfig={{ name: agentName, personality: agentPersonality, prompt: agentPrompt }}
+        />
+      )}
     </div>
   );
 }

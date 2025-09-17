@@ -1,347 +1,194 @@
 import React, { useState } from 'react';
-import { Bot, Copy, Edit3, Save, X } from 'lucide-react';
+import { X, Bot, Heart, Briefcase, GraduationCap, ShoppingCart, Headphones, Edit3, Check } from 'lucide-react';
 
-const AgentTemplates = ({ onSelectTemplate, onClose }) => {
-  const [selectedTemplate, setSelectedTemplate] = useState(null);
-  const [isEditing, setIsEditing] = useState(false);
+const AgentTemplates = ({ onSelectTemplate, onClose, currentConfig }) => {
   const [editingTemplate, setEditingTemplate] = useState(null);
+  const [editedTemplate, setEditedTemplate] = useState({});
 
   const agentTemplates = [
     {
-      id: 'atendimento-comercial',
-      name: '🛍️ Atendimento Comercial',
-      description: 'Agente especializado em vendas e suporte comercial',
-      personality: 'profissional',
-      prompt: 'Você é um assistente comercial especializado em vendas e atendimento ao cliente. Seja sempre educado, prestativo e focado em ajudar o cliente a encontrar a melhor solução. Responda de forma clara e objetiva, oferecendo informações sobre produtos, preços e condições de pagamento quando solicitado.',
-      welcomeMessage: '👋 Olá! Bem-vindo(a)! Sou seu assistente comercial e estou aqui para ajudá-lo(a) com informações sobre nossos produtos e serviços. Como posso ajudá-lo(a) hoje?',
-      awayMessage: '⏰ Obrigado pelo contato! No momento estamos fora do horário de atendimento, mas retornaremos em breve. Deixe sua mensagem que responderemos assim que possível!',
-      autoReply: true,
-      respondToGroups: false,
-      autoGreeting: true,
-      responseDelay: 2000,
-      maxResponseLength: 300,
-      rateLimitPerContact: 8,
-      workingHours: {
-        enabled: true,
-        start: '08:00',
-        end: '18:00',
-        timezone: 'America/Sao_Paulo'
-      },
-      keywords: ['preço', 'produto', 'comprar', 'vendas', 'orçamento', 'info', 'informação']
+      id: 1,
+      name: "Assistente Comercial",
+      personality: "Vendedor experiente, persuasivo e focado em resultados",
+      prompt: "Você é um assistente comercial especializado em vendas. Seja persuasivo, identifique necessidades do cliente e apresente soluções. Sempre busque fechar negócios de forma ética e profissional.",
+      icon: <Briefcase className="w-5 h-5" />,
+      color: "blue"
     },
     {
-      id: 'suporte-tecnico',
-      name: '🔧 Suporte Técnico',
-      description: 'Agente para suporte técnico e resolução de problemas',
-      personality: 'profissional',
-      prompt: 'Você é um assistente de suporte técnico especializado em resolver problemas e dúvidas técnicas. Seja paciente, didático e sempre busque entender completamente o problema antes de oferecer soluções. Forneça instruções claras e passo a passo quando necessário.',
-      welcomeMessage: '🔧 Olá! Sou seu assistente de suporte técnico. Estou aqui para ajudá-lo(a) a resolver qualquer problema ou dúvida técnica. Descreva sua situação que encontraremos a melhor solução juntos!',
-      awayMessage: '🛠️ Recebemos sua solicitação de suporte! Nossa equipe técnica está temporariamente indisponível, mas retornaremos em breve para resolver sua questão.',
-      autoReply: true,
-      respondToGroups: true,
-      autoGreeting: true,
-      responseDelay: 3000,
-      maxResponseLength: 500,
-      rateLimitPerContact: 10,
-      workingHours: {
-        enabled: true,
-        start: '09:00',
-        end: '17:00',
-        timezone: 'America/Sao_Paulo'
-      },
-      keywords: ['problema', 'erro', 'bug', 'ajuda', 'suporte', 'técnico', 'não funciona', 'dúvida']
+      id: 2,
+      name: "Suporte Técnico",
+      personality: "Técnico paciente, didático e solucionador de problemas",
+      prompt: "Você é um especialista em suporte técnico. Seja paciente, explique de forma clara e didática, e ajude a resolver problemas técnicos passo a passo. Sempre confirme se o problema foi resolvido.",
+      icon: <Headphones className="w-5 h-5" />,
+      color: "green"
     },
     {
-      id: 'recepcao-agendamento',
-      name: '📅 Recepção e Agendamento',
-      description: 'Agente para recepção e agendamento de consultas/serviços',
-      personality: 'amigavel',
-      prompt: 'Você é uma recepcionista virtual especializada em agendamentos e atendimento inicial. Seja sempre cordial, organizada e eficiente. Ajude os clientes a agendar horários, forneça informações sobre disponibilidade e procedimentos. Mantenha um tom acolhedor e profissional.',
-      welcomeMessage: '📅 Olá! Bem-vindo(a) à nossa recepção virtual! Sou responsável pelos agendamentos e informações gerais. Posso ajudá-lo(a) a agendar um horário ou esclarecer dúvidas sobre nossos serviços. Como posso ajudá-lo(a)?',
-      awayMessage: '🕐 Obrigado pelo contato! Nossa recepção está temporariamente fechada. Deixe sua mensagem com seus dados e preferência de horário que entraremos em contato para confirmar seu agendamento!',
-      autoReply: true,
-      respondToGroups: false,
-      autoGreeting: true,
-      responseDelay: 1500,
-      maxResponseLength: 250,
-      rateLimitPerContact: 6,
-      workingHours: {
-        enabled: true,
-        start: '07:00',
-        end: '19:00',
-        timezone: 'America/Sao_Paulo'
-      },
-      keywords: ['agendar', 'agendamento', 'consulta', 'horário', 'disponibilidade', 'marcar', 'reservar']
+      id: 3,
+      name: "Atendente Amigável",
+      personality: "Receptivo, caloroso e sempre disposto a ajudar",
+      prompt: "Você é um atendente amigável e acolhedor. Seja sempre educado, empático e prestativo. Faça o cliente se sentir bem-vindo e valorizado em cada interação.",
+      icon: <Heart className="w-5 h-5" />,
+      color: "pink"
     },
     {
-      id: 'atendimento-educacional',
-      name: '🎓 Atendimento Educacional',
-      description: 'Agente para instituições de ensino e cursos',
-      personality: 'amigavel',
-      prompt: 'Você é um assistente educacional especializado em informações sobre cursos, matrículas e vida acadêmica. Seja sempre educativo, paciente e motivador. Ajude estudantes e interessados com informações sobre cursos, processos seletivos, documentação e orientações acadêmicas.',
-      welcomeMessage: '🎓 Olá! Bem-vindo(a) à nossa instituição de ensino! Sou seu assistente educacional e estou aqui para ajudá-lo(a) com informações sobre nossos cursos, matrículas e vida acadêmica. Como posso ajudá-lo(a) hoje?',
-      awayMessage: '📚 Obrigado pelo interesse em nossa instituição! No momento nossa equipe está em horário de aula, mas retornaremos em breve com todas as informações que você precisa!',
-      autoReply: true,
-      respondToGroups: true,
-      autoGreeting: true,
-      responseDelay: 2500,
-      maxResponseLength: 400,
-      rateLimitPerContact: 7,
-      workingHours: {
-        enabled: true,
-        start: '08:00',
-        end: '22:00',
-        timezone: 'America/Sao_Paulo'
-      },
-      keywords: ['curso', 'matrícula', 'inscrição', 'vestibular', 'enem', 'bolsa', 'mensalidade', 'grade']
+      id: 4,
+      name: "Consultor Educacional",
+      personality: "Educador experiente, motivador e orientador",
+      prompt: "Você é um consultor educacional especializado. Oriente sobre cursos, carreiras e desenvolvimento profissional. Seja motivador e ajude as pessoas a alcançarem seus objetivos educacionais.",
+      icon: <GraduationCap className="w-5 h-5" />,
+      color: "purple"
     },
     {
-      id: 'delivery-restaurante',
-      name: '🍕 Delivery e Restaurante',
-      description: 'Agente para pedidos de delivery e atendimento gastronômico',
-      personality: 'amigavel',
-      prompt: 'Você é um assistente de delivery especializado em pedidos de comida e atendimento gastronômico. Seja sempre simpático, rápido e eficiente. Ajude os clientes com o cardápio, pedidos, informações sobre entrega e promoções. Mantenha um tom caloroso e acolhedor.',
-      welcomeMessage: '🍕 Olá! Bem-vindo(a) ao nosso delivery! Sou seu assistente gastronômico e estou aqui para ajudá-lo(a) com nosso cardápio, pedidos e entregas. Que tal conhecer nossas deliciosas opções hoje?',
-      awayMessage: '🕐 Obrigado pelo contato! Nossa cozinha está temporariamente fechada, mas voltaremos em breve com pratos fresquinhos! Deixe sua mensagem que entraremos em contato!',
-      autoReply: true,
-      respondToGroups: false,
-      autoGreeting: true,
-      responseDelay: 1000,
-      maxResponseLength: 200,
-      rateLimitPerContact: 12,
-      workingHours: {
-        enabled: true,
-        start: '11:00',
-        end: '23:00',
-        timezone: 'America/Sao_Paulo'
-      },
-      keywords: ['cardápio', 'pedido', 'delivery', 'entrega', 'pizza', 'lanche', 'promoção', 'desconto']
+      id: 5,
+      name: "Assistente de Vendas Online",
+      personality: "Especialista em e-commerce, dinâmico e conhecedor de produtos",
+      prompt: "Você é um assistente de vendas online especializado. Conheça bem os produtos, tire dúvidas sobre especificações, ajude na escolha e facilite o processo de compra online.",
+      icon: <ShoppingCart className="w-5 h-5" />,
+      color: "orange"
     },
     {
-      id: 'imobiliaria',
-      name: '🏠 Imobiliária',
-      description: 'Agente para corretores e imobiliárias',
-      personality: 'profissional',
-      prompt: 'Você é um assistente imobiliário especializado em compra, venda e locação de imóveis. Seja sempre profissional, detalhista e confiável. Ajude clientes com informações sobre imóveis, documentação, financiamento e visitas. Demonstre conhecimento do mercado imobiliário.',
-      welcomeMessage: '🏠 Olá! Bem-vindo(a) à nossa imobiliária! Sou seu assistente imobiliário e estou aqui para ajudá-lo(a) a encontrar o imóvel dos seus sonhos ou realizar o melhor negócio. Como posso ajudá-lo(a) hoje?',
-      awayMessage: '🏢 Obrigado pelo contato! Nossa equipe de corretores está em atendimento externo, mas retornaremos em breve para ajudá-lo(a) com seu imóvel ideal!',
-      autoReply: true,
-      respondToGroups: false,
-      autoGreeting: true,
-      responseDelay: 2000,
-      maxResponseLength: 350,
-      rateLimitPerContact: 8,
-      workingHours: {
-        enabled: true,
-        start: '08:00',
-        end: '18:00',
-        timezone: 'America/Sao_Paulo'
-      },
-      keywords: ['imóvel', 'casa', 'apartamento', 'aluguel', 'venda', 'compra', 'financiamento', 'visita']
+      id: 6,
+      name: "Assistente Geral",
+      personality: "Versátil, inteligente e adaptável a qualquer situação",
+      prompt: "Você é um assistente geral inteligente e versátil. Adapte-se ao contexto da conversa, seja útil em diversas situações e mantenha sempre um tom profissional e prestativo.",
+      icon: <Bot className="w-5 h-5" />,
+      color: "gray"
     }
   ];
 
-  const handleSelectTemplate = (template) => {
-    setSelectedTemplate(template);
+  const colorClasses = {
+    blue: "bg-blue-50 border-blue-200 text-blue-800",
+    green: "bg-green-50 border-green-200 text-green-800",
+    pink: "bg-pink-50 border-pink-200 text-pink-800",
+    purple: "bg-purple-50 border-purple-200 text-purple-800",
+    orange: "bg-orange-50 border-orange-200 text-orange-800",
+    gray: "bg-gray-50 border-gray-200 text-gray-800"
   };
 
   const handleEditTemplate = (template) => {
-    setEditingTemplate({ ...template });
-    setIsEditing(true);
+    setEditingTemplate(template.id);
+    setEditedTemplate({
+      name: template.name,
+      personality: template.personality,
+      prompt: template.prompt
+    });
   };
 
-  const handleSaveEdit = () => {
-    // Aqui você pode implementar a lógica para salvar o template editado
-    setIsEditing(false);
+  const handleSaveEdit = (template) => {
+    const updatedTemplate = {
+      ...template,
+      ...editedTemplate
+    };
+    onSelectTemplate(updatedTemplate);
     setEditingTemplate(null);
+    setEditedTemplate({});
   };
 
-  const handleUseTemplate = (template) => {
-    onSelectTemplate(template);
-    onClose();
+  const handleCancelEdit = () => {
+    setEditingTemplate(null);
+    setEditedTemplate({});
   };
-
-  if (isEditing && editingTemplate) {
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col">
-          <div className="flex items-center justify-between p-6 border-b border-gray-200">
-            <h3 className="text-lg font-semibold">✏️ Editando Template: {editingTemplate.name}</h3>
-            <button
-              onClick={() => setIsEditing(false)}
-              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-          
-          <div className="flex-1 overflow-y-auto p-6 space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Nome do Template</label>
-              <input
-                type="text"
-                value={editingTemplate.name}
-                onChange={(e) => setEditingTemplate(prev => ({ ...prev, name: e.target.value }))}
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Descrição</label>
-              <input
-                type="text"
-                value={editingTemplate.description}
-                onChange={(e) => setEditingTemplate(prev => ({ ...prev, description: e.target.value }))}
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Prompt do Agente</label>
-              <textarea
-                value={editingTemplate.prompt}
-                onChange={(e) => setEditingTemplate(prev => ({ ...prev, prompt: e.target.value }))}
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent h-32 resize-none"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Mensagem de Boas-vindas</label>
-              <textarea
-                value={editingTemplate.welcomeMessage}
-                onChange={(e) => setEditingTemplate(prev => ({ ...prev, welcomeMessage: e.target.value }))}
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent h-20 resize-none"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Mensagem de Ausência</label>
-              <textarea
-                value={editingTemplate.awayMessage}
-                onChange={(e) => setEditingTemplate(prev => ({ ...prev, awayMessage: e.target.value }))}
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent h-20 resize-none"
-              />
-            </div>
-          </div>
-          
-          <div className="flex items-center justify-end space-x-3 p-6 border-t border-gray-200 bg-gray-50">
-            <button
-              onClick={() => setIsEditing(false)}
-              className="px-6 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={handleSaveEdit}
-              className="flex items-center space-x-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Save className="w-4 h-4" />
-              <span>Salvar</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
-          <div className="flex items-center space-x-3">
-            <Bot className="w-6 h-6 text-blue-600" />
-            <h2 className="text-xl font-semibold">🤖 Templates de Agentes Prontos</h2>
-          </div>
+          <h2 className="text-xl font-semibold text-gray-800">Modelos de Agentes</h2>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {agentTemplates.map((template) => (
               <div
                 key={template.id}
-                className={`border-2 rounded-lg p-4 cursor-pointer transition-all hover:shadow-lg ${
-                  selectedTemplate?.id === template.id
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-200 hover:border-gray-300'
-                }`}
-                onClick={() => handleSelectTemplate(template)}
+                className={`p-4 rounded-lg border-2 transition-all hover:shadow-md ${colorClasses[template.color]}`}
               >
                 <div className="flex items-start justify-between mb-3">
-                  <h3 className="font-semibold text-gray-900">{template.name}</h3>
+                  <div className="flex items-center space-x-2">
+                    {template.icon}
+                    {editingTemplate === template.id ? (
+                      <input
+                        type="text"
+                        value={editedTemplate.name}
+                        onChange={(e) => setEditedTemplate({...editedTemplate, name: e.target.value})}
+                        className="font-semibold bg-white border border-gray-300 rounded px-2 py-1 text-sm"
+                      />
+                    ) : (
+                      <h3 className="font-semibold">{template.name}</h3>
+                    )}
+                  </div>
+                  <div className="flex space-x-1">
+                    {editingTemplate === template.id ? (
+                      <>
+                        <button
+                          onClick={() => handleSaveEdit(template)}
+                          className="p-1 hover:bg-white hover:bg-opacity-50 rounded transition-colors"
+                        >
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={handleCancelEdit}
+                          className="p-1 hover:bg-white hover:bg-opacity-50 rounded transition-colors"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => handleEditTemplate(template)}
+                        className="p-1 hover:bg-white hover:bg-opacity-50 rounded transition-colors"
+                      >
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mb-3">
+                  <p className="text-sm font-medium mb-1">Personalidade:</p>
+                  {editingTemplate === template.id ? (
+                    <textarea
+                      value={editedTemplate.personality}
+                      onChange={(e) => setEditedTemplate({...editedTemplate, personality: e.target.value})}
+                      className="w-full text-sm bg-white border border-gray-300 rounded px-2 py-1 resize-none"
+                      rows="2"
+                    />
+                  ) : (
+                    <p className="text-sm opacity-90">{template.personality}</p>
+                  )}
+                </div>
+
+                <div className="mb-4">
+                  <p className="text-sm font-medium mb-1">Prompt:</p>
+                  {editingTemplate === template.id ? (
+                    <textarea
+                      value={editedTemplate.prompt}
+                      onChange={(e) => setEditedTemplate({...editedTemplate, prompt: e.target.value})}
+                      className="w-full text-sm bg-white border border-gray-300 rounded px-2 py-1 resize-none"
+                      rows="3"
+                    />
+                  ) : (
+                    <p className="text-sm opacity-90">{template.prompt}</p>
+                  )}
+                </div>
+
+                {editingTemplate !== template.id && (
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleEditTemplate(template);
-                    }}
-                    className="p-1 hover:bg-gray-200 rounded transition-colors"
-                    title="Editar template"
+                    onClick={() => onSelectTemplate(template)}
+                    className="w-full bg-white bg-opacity-50 hover:bg-opacity-75 text-sm font-medium py-2 px-4 rounded-lg transition-colors"
                   >
-                    <Edit3 className="w-4 h-4 text-gray-500" />
+                    Usar este modelo
                   </button>
-                </div>
-                
-                <p className="text-sm text-gray-600 mb-4">{template.description}</p>
-                
-                <div className="space-y-2 text-xs text-gray-500">
-                  <div className="flex items-center justify-between">
-                    <span>Personalidade:</span>
-                    <span className="capitalize font-medium">{template.personality}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Horário:</span>
-                    <span className="font-medium">
-                      {template.workingHours.enabled 
-                        ? `${template.workingHours.start}-${template.workingHours.end}`
-                        : '24h'
-                      }
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Grupos:</span>
-                    <span className="font-medium">
-                      {template.respondToGroups ? '✅ Sim' : '❌ Não'}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Palavras-chave:</span>
-                    <span className="font-medium">{template.keywords.length}</span>
-                  </div>
-                </div>
-                
-                {selectedTemplate?.id === template.id && (
-                  <div className="mt-4 pt-4 border-t border-gray-200">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleUseTemplate(template);
-                      }}
-                      className="w-full flex items-center justify-center space-x-2 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors"
-                    >
-                      <Copy className="w-4 h-4" />
-                      <span>Usar Este Template</span>
-                    </button>
-                  </div>
                 )}
               </div>
             ))}
           </div>
-        </div>
-
-        <div className="flex items-center justify-between p-6 border-t border-gray-200 bg-gray-50">
-          <div className="text-sm text-gray-600">
-            💡 Selecione um template e clique em "Usar Este Template" para aplicar as configurações
-          </div>
-          <button
-            onClick={onClose}
-            className="px-6 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-          >            Fechar
-          </button>
         </div>
       </div>
     </div>

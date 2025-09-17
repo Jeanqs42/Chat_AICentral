@@ -71,7 +71,7 @@ const AgentControl = ({ socket, agentEnabled, onAgentToggle }) => {
   useEffect(() => {
     if (socket) {
       // Carregar configuração atual do agente
-      socket.emit('get_agent_config');
+      socket.emit('get-agent-config');
       
       socket.on('agent_config_loaded', (config) => {
         setCurrentAgent(config);
@@ -113,7 +113,7 @@ const AgentControl = ({ socket, agentEnabled, onAgentToggle }) => {
     };
 
     if (socket) {
-      socket.emit('save_agent_config', agentConfig);
+      socket.emit('save-agent-config', agentConfig);
       setCurrentAgent(agentConfig);
       setShowConfig(false);
       toast.success('Configuração do agente salva com sucesso!');

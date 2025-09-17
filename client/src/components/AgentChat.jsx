@@ -271,36 +271,47 @@ function AgentChat({
               key={message.id}
               className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
             >
-              <div
-                className={`max-w-xs lg:max-w-md px-3 py-2 rounded-lg ${
-                  message.sender === 'user'
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-gray-100 text-gray-800 border border-gray-200'
-                }`}
-              >
-                <div className="flex items-start space-x-2">
-                  {message.sender === 'agent' && (
-                    <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <Bot className="w-3 h-3 text-white" />
-                    </div>
+              <div className={`flex items-start gap-3 ${message.sender === 'user' ? 'flex-row-reverse' : ''}`}>
+                {/* Avatar */}
+                <div className={`h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                  message.sender === 'user' 
+                    ? 'bg-green-500' 
+                    : 'bg-gray-300'
+                }`}>
+                  {message.sender === 'user' ? (
+                    <User className="h-4 w-4 text-white" />
+                  ) : (
+                    <Bot className="h-4 w-4 text-gray-600" />
                   )}
-                  <div className="flex-1">
-                    <p className="text-sm whitespace-pre-wrap">{message.text}</p>
-                    <div className={`text-xs mt-1 ${
-                      message.sender === 'user' ? 'text-blue-100' : 'text-gray-500'
-                    }`}>
-                      {message.timestamp && message.timestamp instanceof Date 
-                      ? message.timestamp.toLocaleTimeString('pt-BR', {
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })
-                      : new Date().toLocaleTimeString('pt-BR', {
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })
-                    }
-                    </div>
+                </div>
+
+                {/* Message Content */}
+                <div className={`flex flex-col max-w-xs lg:max-w-md ${
+                  message.sender === 'user' ? 'items-end' : 'items-start'
+                }`}>
+                  <div className={`rounded-lg p-3 shadow-sm ${
+                    message.sender === 'user'
+                      ? 'bg-green-500 text-white rounded-br-none'
+                      : 'bg-white text-gray-800 rounded-bl-none border border-gray-200'
+                  }`}>
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                      {message.text}
+                    </p>
                   </div>
+                  
+                  {/* Timestamp */}
+                  <span className="text-xs text-gray-500 mt-1 px-1">
+                    {message.timestamp && message.timestamp instanceof Date 
+                    ? message.timestamp.toLocaleTimeString('pt-BR', {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })
+                    : new Date().toLocaleTimeString('pt-BR', {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })
+                  }
+                  </span>
                 </div>
               </div>
             </div>

@@ -7,9 +7,21 @@ import AgentChat from './components/AgentChat';
 import QRCodeModal from './components/QRCodeModal';
 import ApiKeyModal from './components/ApiKeyModal';
 import AgentSettings from './components/AgentSettings';
+import LandingPage from './components/LandingPage';
+import MobileApp from './components/MobileApp';
+import useIsMobile from './hooks/useIsMobile';
 import { MessageCircle, Settings, Phone, Bot, LogOut, PhoneOff, Sparkles, Cog, X, User, MessageSquare, Send, Eye, EyeOff, RotateCcw } from 'lucide-react';
 
 function App() {
+  // Hook para detectar dispositivos móveis
+  const isMobile = useIsMobile();
+  
+  // Estado para controlar se deve mostrar landing page ou plataforma
+  const [showLandingPage, setShowLandingPage] = useState(() => {
+    // Verificar se já tem API key salva para decidir se mostra landing page
+    const savedApiKey = localStorage.getItem('aicentral_api_key');
+    return !savedApiKey; // Se não tem API key, mostra landing page
+  });
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [whatsappReady, setWhatsappReady] = useState(false);
@@ -31,7 +43,32 @@ function App() {
   const [supportAgentMessages, setSupportAgentMessages] = useState([]);
   const [userInput, setUserInput] = useState('');
   const [supportInput, setSupportInput] = useState('');
-  const [agentConfig, setAgentConfig] = useState({ name: 'Assistente IA' });
+  const [isLoadingChats, setIsLoadingChats] = useState(false);
+  const [agentConfig, setAgentConfig] = useState({
+    name: 'Assistente de Atendimento',
+    personality: 'profissional',
+    prompt: '',
+    welcomeMessage: 'Olá! Como posso ajudá-lo hoje?',
+    awayMessage: 'Obrigado pela mensagem! Retornaremos em breve.',
+    respondToGroups: false,
+    autoGreeting: true,
+    responseDelay: 2000,
+    pauseAfterHuman: true,
+    pauseDurationHours: 12,
+    maxResponseLength: 500,
+    rateLimitPerContact: 5,
+    ignoreForwardedMessages: true,
+    ignoreMediaMessages: false,
+    rateLimitWindow: 60,
+    enableTextCommands: true,
+    workingHours: {
+      enabled: false,
+      start: '09:00',
+      end: '18:00',
+      timezone: 'America/Sao_Paulo'
+    },
+    keywords: []
+  });
   const supportMessagesEndRef = useRef(null);
 
   const [showAgentSettings, setShowAgentSettings] = useState(false);
@@ -79,6 +116,24 @@ function App() {
       }
     };
   }, [isValidApiKey]);
+
+  // Carregar configurações do agente quando conectar
+  useEffect(() => {
+    if (socket && isValidApiKey) {
+      // Solicitar configuração atual do agente ao conectar
+      socket.emit('get-agent-config');
+      
+      socket.on('agent-config-updated', (data) => {
+        if (data.config) {
+          setAgentConfig(prev => ({ ...prev, ...data.config }));
+        }
+      });
+
+      return () => {
+        socket.off('agent-config-updated');
+      };
+    }
+  }, [socket, isValidApiKey]);
 
   // Atualização automática das mensagens a cada 2 minutos (reduzido para evitar sobrecarga)
   useEffect(() => {
@@ -191,16 +246,6 @@ function App() {
       } else if (data.isReady) {
         loadChats();
       }
-      
-      // Verificar se o WhatsApp estava conectado antes do reload
-      const wasWhatsappReady = localStorage.getItem('whatsapp_ready') === 'true';
-      if (wasWhatsappReady && !data.isReady) {
-        console.log('Tentando reconectar WhatsApp após reload da página');
-        // Pequeno delay para garantir que a conexão está estável
-        setTimeout(() => {
-          newSocket.emit('check_whatsapp_status');
-        }, 1000);
-      }
     });
 
     newSocket.on('auth_error', (error) => {
@@ -231,12 +276,10 @@ function App() {
       setWhatsappReady(true);
       setQrCode(null);
       setShowQRModal(false);
-      // Salvar estado do WhatsApp no localStorage
       localStorage.setItem('whatsapp_ready', 'true');
       toast.success('WhatsApp conectado com sucesso!');
       loadChats();
       
-      // Se há um chat selecionado, recarregar suas mensagens
       if (selectedChat) {
         loadMessages(selectedChat.id);
       }
@@ -253,12 +296,15 @@ function App() {
 
     newSocket.on('whatsapp_disconnected', (reason) => {
       setWhatsappReady(false);
-      // Limpar estado do WhatsApp do localStorage
       localStorage.removeItem('whatsapp_ready');
-      if (reason) {
+      
+      // Só mostrar erro e limpar interface se for uma desconexão inesperada
+      if (reason && reason !== 'LOGOUT') {
         toast.error(`WhatsApp desconectado: ${reason}`);
+        // Não limpar chats/mensagens automaticamente para evitar perda de dados
+        console.log('WhatsApp desconectado inesperadamente, mantendo dados locais');
       } else {
-        // Desconexão manual pelo usuário
+        // Limpeza apenas em logout explícito
         setQrCode(null);
         setShowQRModal(false);
         setChats([]);
@@ -270,10 +316,9 @@ function App() {
     newSocket.on('new_message', (message) => {
       console.log('Nova mensagem recebida no frontend:', message);
       
-      // Adicionar nova mensagem se for do chat selecionado
+      // Atualizar mensagens em tempo real se for do chat selecionado
       if (selectedChat && (message.from === selectedChat.id || message.to === selectedChat.id)) {
         setMessages(prev => {
-          // Verificar se a mensagem já existe para evitar duplicatas
           const messageExists = prev.some(msg => msg.id === message.id);
           if (!messageExists) {
             return [...prev, message];
@@ -282,10 +327,34 @@ function App() {
         });
       }
       
-      // Atualizar lista de chats
-      loadChats();
+      // Atualizar lista de chats em tempo real
+      setChats(prevChats => {
+        const chatIndex = prevChats.findIndex(chat => 
+          chat.id === message.from || chat.id === message.to
+        );
+        
+        if (chatIndex !== -1) {
+          const updatedChats = [...prevChats];
+          updatedChats[chatIndex] = {
+            ...updatedChats[chatIndex],
+            lastMessage: {
+              body: message.body,
+              timestamp: message.timestamp
+            },
+            timestamp: message.timestamp
+          };
+          
+          // Mover chat para o topo se não for do usuário atual
+          if (!message.fromMe) {
+            const [updatedChat] = updatedChats.splice(chatIndex, 1);
+            return [updatedChat, ...updatedChats];
+          }
+          
+          return updatedChats;
+        }
+        return prevChats;
+      });
       
-      // Notificação
       if (!message.fromMe) {
         toast(`Nova mensagem de ${message.contact.name || message.contact.number}`, {
           icon: '💬'
@@ -298,20 +367,41 @@ function App() {
       toast.success(`Agente ${data.enabled ? 'ativado' : 'desativado'} no WhatsApp`);
     });
 
-    newSocket.on('agent-config-updated', (config) => {
-      setAgentConfig(config);
+    newSocket.on('agent-config-updated', (data) => {
+      if (data.config) {
+        setAgentConfig(data.config);
+        console.log('Configuração do agente atualizada no App:', data.config);
+      }
+    });
+
+    newSocket.on('agent-config-saved', (data) => {
+      if (data.config) {
+        setAgentConfig(data.config);
+        console.log('Configuração do agente salva no App:', data.config);
+      }
     });
 
     newSocket.on('ai_response_sent', (data) => {
       toast.success('Resposta da AI enviada!');
     });
 
-    newSocket.on('chats_loaded', (chatList) => {
-      console.log('Chats carregados do servidor:', chatList);
-      if (chatList && Array.isArray(chatList)) {
-        setChats(chatList);
+    newSocket.on('chats_loaded', (response) => {
+      console.log('Chats carregados do servidor:', response);
+      setIsLoadingChats(false);
+      
+      if (response && response.chats && Array.isArray(response.chats)) {
+        // Se é a primeira página, substitui os chats
+        if (response.pagination && response.pagination.offset === 0) {
+          setChats(response.chats);
+        } else {
+          // Se é uma página adicional, adiciona aos chats existentes
+          setChats(prevChats => [...prevChats, ...response.chats]);
+        }
+      } else if (response && Array.isArray(response)) {
+        // Compatibilidade com formato antigo
+        setChats(response);
       } else {
-        console.error('Lista de chats inválida recebida:', chatList);
+        console.error('Lista de chats inválida recebida:', response);
       }
     });
 
@@ -351,9 +441,11 @@ function App() {
       }
     });
 
-    // Listeners para erros
+    newSocket.emit('get-agent-config');
+
     newSocket.on('chats_error', (error) => {
       console.error('Erro ao carregar chats:', error);
+      setIsLoadingChats(false);
       toast.error(`Erro ao carregar chats: ${error}`);
     });
 
@@ -372,6 +464,7 @@ function App() {
 
   const disconnectWhatsApp = () => {
     if (socket && whatsappReady) {
+      console.log('Desconectando WhatsApp por solicitação do usuário');
       socket.emit('disconnect-whatsapp');
       setWhatsappReady(false);
       setQrCode(null);
@@ -385,18 +478,21 @@ function App() {
 
   const loadChats = () => {
     if (socket && whatsappReady) {
+      console.log('Carregando chats do WhatsApp...');
+      setIsLoadingChats(true);
       socket.emit('get_chats');
-      loadContactsFromSupabase();
+      loadContactsFromDatabase();
+    } else {
+      console.log('WhatsApp não está pronto, não carregando chats');
     }
   };
 
-  const loadContactsFromSupabase = async () => {
+  const loadContactsFromDatabase = async () => {
     try {
       const response = await fetch('/api/contacts');
       if (response.ok) {
         const contacts = await response.json();
-        console.log('Contatos carregados do Supabase:', contacts.length);
-        // Converter formato do Supabase para o formato esperado pelo frontend
+        console.log('Contatos carregados do banco de dados:', contacts.length);
         const formattedChats = contacts.map(contact => ({
           id: contact.whatsapp_id,
           name: contact.name || contact.pushname || contact.number,
@@ -410,14 +506,13 @@ function App() {
           }
         }));
         setChats(prevChats => {
-          // Mesclar com chats existentes, evitando duplicatas
           const existingIds = prevChats.map(chat => chat.id);
           const newChats = formattedChats.filter(chat => !existingIds.includes(chat.id));
           return [...prevChats, ...newChats];
         });
       }
     } catch (error) {
-       console.error('Erro ao carregar contatos do Supabase:', error);
+       console.error('Erro ao carregar contatos do banco de dados:', error);
      }
    };
 
@@ -427,9 +522,15 @@ function App() {
   };
 
   const loadMessages = async (chatId) => {
-    // Usar apenas socket para evitar conflitos e sobrecarga
-    if (socket && whatsappReady) {
+    if (socket && whatsappReady && chatId) {
+      console.log('Carregando mensagens para chat:', chatId);
       socket.emit('get_messages', chatId);
+    } else {
+      console.log('Condições não atendidas para carregar mensagens:', {
+        socket: !!socket,
+        whatsappReady,
+        chatId
+      });
     }
   };
 
@@ -442,45 +543,32 @@ function App() {
     }
   };
 
-  const handleApiKeySubmit = (key) => {
-    validateApiKey(key);
-  };
-
   const openApiKeyModal = () => {
     setShowApiKeyModal(true);
   };
 
   const handleLogout = () => {
-    // MANTER WhatsApp conectado para que o agente continue atendendo
-    // Não desconectar WhatsApp - apenas limpar interface
-    
-    // Limpar dados locais
     localStorage.removeItem('aicentral_api_key');
     
-    // Desconectar socket
     if (socket) {
       socket.disconnect();
     }
     
-    // Resetar apenas estados da interface, mantendo WhatsApp ativo
     setSocket(null);
     setIsConnected(false);
     setApiKey('');
     setIsValidApiKey(false);
-    // NÃO resetar whatsappReady - manter conexão ativa
     setQrCode(null);
     setShowQRModal(false);
     setChats([]);
     setSelectedChat(null);
     setMessages([]);
     setShowAgentChat(false);
-    // NÃO resetar agentEnabled - manter agente ativo
     setUserAssistantMessages([]);
     setSupportAgentMessages([]);
     setUserInput('');
     setSupportInput('');
     
-    // Mostrar modal de API key
     setShowApiKeyModal(true);
     
     toast.success('Logout realizado! WhatsApp permanece conectado para atendimento automático.');
@@ -492,12 +580,56 @@ function App() {
     }
   };
 
+  // Função para lidar com o submit do API key
+  const handleApiKeySubmit = (key) => {
+    validateApiKey(key);
+  };
+
+  // Função para entrar na plataforma
+  const handleEnterPlatform = () => {
+    setShowLandingPage(false);
+    // Se não tem API key, mostrar modal
+    if (!apiKey) {
+      setShowApiKeyModal(true);
+    }
+  };
+
+  // Se deve mostrar landing page, renderizar apenas ela
+  if (showLandingPage) {
+    return <LandingPage onEnterPlatform={handleEnterPlatform} />;
+  }
+
+  // Se não tem API key válida, mostrar modal de API key
   if (!isValidApiKey) {
     return (
-      <ApiKeyModal
-        isOpen={showApiKeyModal}
-        onSubmit={handleApiKeySubmit}
-        onClose={() => setShowApiKeyModal(false)}
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <ApiKeyModal
+          isOpen={true}
+          onSubmit={handleApiKeySubmit}
+          onClose={() => {
+            // Se não tem API key válida, voltar para landing page
+            if (!apiKey) {
+              setShowLandingPage(true);
+            }
+          }}
+        />
+      </div>
+    );
+  }
+
+  // Se é mobile, renderizar versão mobile simplificada
+  if (isMobile) {
+    return (
+      <MobileApp
+        isConnected={isConnected}
+        whatsappReady={whatsappReady}
+        qrCode={qrCode}
+        showQRModal={showQRModal}
+        setShowQRModal={setShowQRModal}
+        connectWhatsApp={connectWhatsApp}
+        disconnectWhatsApp={disconnectWhatsApp}
+        agentConfig={agentConfig}
+        socket={socket}
       />
     );
   }
@@ -514,7 +646,6 @@ function App() {
     
     setUserAssistantMessages(prev => [...prev, userMessage]);
     
-    // Enviar para API AI Central - Sessão do Usuário
     if (socket) {
       socket.emit('user-assistant-query', {
         message: userInput,
@@ -541,17 +672,16 @@ function App() {
     
     setSupportAgentMessages(prev => [...prev, userMessage]);
     
-    // Enviar para API AI Central - Usando a configuração do agente do usuário
     if (socket) {
       socket.emit('support-agent-query', {
         message: supportInput,
-        sessionId: `test-agent-${Date.now()}`, // Sessão única para teste
-        agentConfig: agentConfig, // Usar configuração do agente do usuário
+        sessionId: `test-agent-${Date.now()}`,
+        agentConfig: agentConfig,
         context: {
           selectedChat,
           messages: messages.slice(-10),
           customerInfo: selectedChat,
-          isTestMode: true // Indica que é modo de teste
+          isTestMode: true
         }
       });
     }
@@ -560,7 +690,7 @@ function App() {
   };
 
   return (
-    <div className="flex h-screen bg-whatsapp-gray-light">
+    <div className="flex h-screen bg-gray-100">
       {/* Header */}
       <div className="absolute top-0 left-0 right-0 bg-whatsapp-primary text-white p-4 z-10">
         <div className="flex items-center justify-between">
@@ -577,7 +707,7 @@ function App() {
                 {whatsappReady ? 'WhatsApp Conectado' : isConnected ? 'Servidor Conectado' : 'Desconectado'}
               </span>
             </div>
-            {/* Chat do Assistente IA - Sempre Disponível */}
+            
             <button
               onClick={() => {
                 setShowAgentChat(!showAgentChat);
@@ -592,7 +722,6 @@ function App() {
               <span className="font-medium">{showAgentChat ? '✕ Fechar Chat' : '💬 Assistente IA'}</span>
             </button>
 
-            {/* Controles do WhatsApp */}
             {whatsappReady && (
               <div className="flex items-center space-x-2 bg-black bg-opacity-20 rounded-lg p-1">
                 <button
@@ -650,31 +779,31 @@ function App() {
 
       {/* Main Content */}
       <div className="flex w-full pt-16">
-        {/* Sidebar - Lista de Contatos */}
         <Sidebar
           chats={chats}
           selectedChat={selectedChat}
           onSelectChat={selectChat}
           whatsappReady={whatsappReady}
           onRefresh={loadChats}
+          isLoadingChats={isLoadingChats}
         />
         
-        {/* Chat Principal do WhatsApp - Sempre Visível no Centro */}
         <div className="flex-1">
           <ChatArea
-             selectedChat={selectedChat}
-             messages={messages}
-             onSendMessage={sendMessage}
-             whatsappReady={whatsappReady}
-             socket={socket}
-             agentEnabled={agentEnabled}
-           />
+            selectedChat={selectedChat}
+            messages={messages}
+            onSendMessage={sendMessage}
+            whatsappReady={whatsappReady}
+            socket={socket}
+            agentEnabled={agentEnabled}
+            agentConfig={agentConfig}
+          />
         </div>
         
-        {/* Chat dos Assistentes - Painel Lateral Direito - Sempre Visível */}
+        {/* Agent Chat Panel */}
         {showAgentChat && (
           <div className="w-96 bg-white border-l border-gray-200 flex flex-col">
-            {/* Agent Header - Sempre Visível */}
+            {/* Agent Toggle */}
             <div className="p-4 border-b border-gray-200">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="text-lg font-semibold text-gray-800">
@@ -686,276 +815,108 @@ function App() {
                 </div>
               </div>
               
-              {/* Mode Toggle Buttons - Sempre Visível */}
+              {/* Agent Status Info */}
+              {activeAgent === 'support' && (
+                <div className="mb-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="text-sm text-green-800 mb-2">
+                        <div className="flex items-center space-x-2">
+                          <span>🤖</span>
+                          <div>
+                            <div className="font-semibold">{agentConfig.name || 'Assistente IA'}</div>
+                            <div className="text-xs text-green-600 mt-1">
+                              {agentConfig.personality || 'Assistente inteligente para atendimento'}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-3">
+                      <div className="text-right">
+                        <div className="text-xs text-gray-600 mb-1">Status</div>
+                        <span className={`text-xs font-medium ${agentEnabled ? 'text-green-600' : 'text-red-600'}`}>
+                          {agentEnabled ? 'Ativo' : 'Inativo'}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setAgentEnabled(!agentEnabled);
+                          socket.emit('toggle-agent', !agentEnabled);
+                        }}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${
+                          agentEnabled ? 'bg-green-600' : 'bg-gray-200'
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            agentEnabled ? 'translate-x-6' : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="flex bg-gray-100 rounded-lg p-1 mb-3">
                 <button
                   onClick={() => setActiveAgent('user')}
                   className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                     activeAgent === 'user'
-                      ? 'bg-blue-500 text-white shadow-md'
-                      : 'text-gray-600 hover:bg-gray-200'
+                      ? 'bg-blue-500 text-white shadow-sm'
+                      : 'text-gray-600 hover:text-gray-800'
                   }`}
                 >
-                  👤 Pessoal
+                  👤 Assistente Pessoal
                 </button>
                 <button
                   onClick={() => setActiveAgent('support')}
                   className={`flex-1 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                     activeAgent === 'support'
-                      ? 'bg-green-500 text-white shadow-md'
-                      : 'text-gray-600 hover:bg-gray-200'
+                      ? 'bg-green-500 text-white shadow-sm'
+                      : 'text-gray-600 hover:text-gray-800'
                   }`}
                 >
-                  🎧 Atendimento
+                  🎧 Agente WhatsApp
                 </button>
               </div>
-            </div>
-            
-            {activeAgent === 'support' ? (
-              <div className="flex flex-col h-full bg-white max-h-[600px]">
-                {/* Agent Header - Design Limpo */}
-                <div className="bg-gray-50 border-b border-gray-200 p-4">
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-full bg-gradient-to-br from-green-600 to-green-700 flex items-center justify-center">
-                        <Bot className="h-5 w-5 text-white" />
-                      </div>
-                      <div>
-                        <h2 className="font-semibold text-gray-900">{agentConfig.name || 'Agente de Atendimento'}</h2>
-                        <div className="flex items-center gap-2">
-                          <div className={`h-2 w-2 rounded-full ${agentEnabled ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
-                          <span className="text-xs text-gray-600">
-                            {agentEnabled ? 'Online no WhatsApp' : 'Offline'}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
 
-                    <div className="flex items-center space-x-2">
-                      <button
-                        onClick={() => setShowAgentSettings(true)}
-                        className="p-2 hover:bg-gray-200 rounded-full transition-colors"
-                        title="Configurar Agente"
-                      >
-                        <Settings className="w-4 h-4 text-gray-600" />
-                      </button>
-                      
-                      <button
-                        onClick={() => setSupportAgentMessages([])}
-                        className="p-2 hover:bg-gray-200 rounded-full transition-colors"
-                        title="Nova Conversa"
-                      >
-                        <RotateCcw className="w-4 h-4 text-gray-600" />
-                      </button>
-
-                      <button
-                        onClick={toggleAgent}
-                        className={`p-2 rounded-full transition-colors ${
-                          agentEnabled 
-                            ? 'bg-green-500 hover:bg-green-600 text-white' 
-                            : 'bg-gray-300 hover:bg-gray-400 text-gray-600'
-                        }`}
-                        title={agentEnabled ? 'Desativar agente no WhatsApp' : 'Ativar agente no WhatsApp'}
-                      >
-                        {agentEnabled ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Agent Info */}
-                  <div className="text-xs text-gray-600 space-y-1">
-                    <p>Personalidade: <span className="text-green-600 font-medium capitalize">{agentConfig.personality || 'profissional'}</span></p>
-                    <p>Status: <span className="text-gray-900">{agentEnabled ? 'Ativo no WhatsApp' : 'Inativo'}</span></p>
-                  </div>
-
-                  {/* Agent Status */}
-                  {agentConfig.prompt && (
-                    <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Sparkles className="h-4 w-4 text-green-600" />
-                        <span className="text-sm font-medium text-green-800">Agente Configurado</span>
-                      </div>
-                      <p className="text-xs text-green-700 truncate">
-                        {agentConfig.prompt.substring(0, 60)}...
-                      </p>
-                    </div>
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-gray-600">
+                  <p>{activeAgent === 'user' 
+                    ? '💡 Assistente IA Pessoal - Para análise, insights e conversas gerais'
+                    : '🤖 Simulador do Agente WhatsApp - Testa as configurações do atendimento automático'
+                  }</p>
+                </div>
+                <div className="flex items-center space-x-1">
+                  <button
+                    onClick={() => {
+                      if (activeAgent === 'user') {
+                        setUserAssistantMessages([]);
+                      } else {
+                        setSupportAgentMessages([]);
+                      }
+                    }}
+                    className="text-gray-500 hover:text-gray-700 p-1 rounded"
+                    title="Limpar conversa"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                  </button>
+                  {activeAgent === 'support' && (
+                    <button
+                      onClick={() => setShowAgentSettings(true)}
+                      className="text-gray-500 hover:text-gray-700 p-1 rounded"
+                      title="Configurações do Agente"
+                    >
+                      <Settings className="h-4 w-4" />
+                    </button>
                   )}
                 </div>
-
-                {/* Chat Header */}
-                <div className="p-4 bg-white border-b border-gray-200">
-                  <div className="flex items-center gap-3">
-                    <MessageSquare className="h-5 w-5 text-green-600" />
-                    <div className="flex-1">
-                      <h1 className="font-semibold text-gray-900">Simulador de Atendimento</h1>
-                      <p className="text-sm text-gray-600">🤖 Agente: {agentConfig.name || 'Assistente IA'}</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Messages */}
-                <div 
-                  ref={supportMessagesEndRef}
-                  className="flex-1 overflow-y-auto p-4 flex flex-col scroll-smooth"
-                  style={{
-                    backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23f0f0f0' fill-opacity='0.1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`
-                  }}
-                >
-                  {/* Spacer para empurrar mensagens para baixo */}
-                  <div className="flex-1"></div>
-                  
-                  {/* Container das mensagens */}
-                  <div className="space-y-4 max-w-4xl mx-auto w-full">
-                    {supportAgentMessages.length === 0 && (
-                      <div className="text-center py-12">
-                        <Bot className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                        <h3 className="text-lg font-medium mb-2 text-gray-900">Teste seu agente de atendimento!</h3>
-                        <p className="text-gray-600">
-                          Simule conversas para verificar como o agente responderá no WhatsApp.
-                        </p>
-                        <div className="mt-4 p-3 bg-green-50 rounded-lg text-sm text-green-700 max-w-md mx-auto">
-                          💡 Dica: Use os comandos rápidos ou digite uma mensagem personalizada
-                        </div>
-                      </div>
-                    )}
-
-                    {supportAgentMessages.map((message, index) => (
-                      <div key={index} className={`flex items-start gap-3 ${message.type === 'user' ? 'flex-row-reverse' : ''}`}>
-                        {/* Avatar */}
-                        <div className={`h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                          message.type === 'user' 
-                            ? 'bg-gradient-to-br from-blue-600 to-blue-700' 
-                            : 'bg-green-100'
-                        }`}>
-                          {message.type === 'user' ? (
-                            <User className="h-4 w-4 text-white" />
-                          ) : (
-                            <Bot className="h-4 w-4 text-green-600" />
-                          )}
-                        </div>
-
-                        {/* Message Content */}
-                        <div className={`flex flex-col max-w-xs sm:max-w-md lg:max-w-lg xl:max-w-xl ${
-                          message.type === 'user' ? 'items-end' : 'items-start'
-                        }`}>
-                          <div className={`rounded-2xl p-3 shadow-sm ${
-                            message.type === 'user'
-                              ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-br-md'
-                              : 'bg-gray-100 text-gray-800 rounded-bl-md border border-gray-200'
-                          }`}>
-                            <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-                              {message.content}
-                            </p>
-                          </div>
-                          
-                          {/* Timestamp */}
-                          <span className="text-xs text-gray-500 mt-1 px-1">
-                            {new Date(message.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                    {/* Elemento para rolagem automática */}
-                    <div ref={supportMessagesEndRef} />
-                  </div>
-                </div>
-
-                {/* Input */}
-                <div className="p-4 bg-white border-t border-gray-200">
-                  <form onSubmit={(e) => { e.preventDefault(); sendSupportMessage(); }} className="flex gap-2 max-w-4xl mx-auto">
-                    <input
-                      value={supportInput}
-                      onChange={(e) => setSupportInput(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && sendSupportMessage()}
-                      placeholder="Digite uma mensagem de teste..."
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                    />
-                    <button 
-                      type="submit" 
-                      disabled={!supportInput.trim()}
-                      className="bg-gradient-to-r from-green-600 to-green-700 text-white px-4 py-2 rounded-lg hover:from-green-700 hover:to-green-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                      <Send className="h-4 w-4" />
-                    </button>
-                  </form>
-                  
-                  {/* Comandos Rápidos */}
-                  <div className="mt-3 max-w-4xl mx-auto">
-                    <div className="text-xs text-gray-500 mb-2">💡 Comandos Rápidos:</div>
-                    <div className="flex gap-2 justify-center">
-                      <button 
-                        onClick={() => setSupportInput('Olá, preciso de ajuda')}
-                        className="text-xs bg-blue-50 text-blue-700 px-3 py-2 rounded hover:bg-blue-100 transition-colors"
-                      >
-                        👋 Saudação
-                      </button>
-                      <button 
-                        onClick={() => setSupportInput('Qual o horário de funcionamento?')}
-                        className="text-xs bg-purple-50 text-purple-700 px-3 py-2 rounded hover:bg-purple-100 transition-colors"
-                      >
-                        🕒 Horário
-                      </button>
-                      <button 
-                        onClick={() => setSupportInput('Preciso verificar meu pedido')}
-                        className="text-xs bg-orange-50 text-orange-700 px-3 py-2 rounded hover:bg-orange-100 transition-colors"
-                      >
-                        📦 Verificar
-                      </button>
-                    </div>
-                  </div>
-                </div>
               </div>
-            ) : (
-              <>
-                {/* Agent Content for Personal Assistant */}
-                <div className="p-4 border-b border-gray-200">
+            </div>
 
-              {/* Agent Info */}
-              <div className={`flex rounded-lg p-2 justify-center ${
-                activeAgent === 'user' ? 'bg-blue-100' : 'bg-green-100'
-              }`}>
-                <span className={`text-sm font-medium ${
-                  activeAgent === 'user' ? 'text-blue-800' : 'text-green-800'
-                }`}>
-                  {activeAgent === 'user' ? '👤 Assistente IA Pessoal' : '🎧 Agente de Atendimento WhatsApp'}
-                </span>
-              </div>
-              
-              {/* Agent Description */}
-             <div className="flex items-center justify-between mt-2">
-               <div className="text-sm text-gray-600">
-                 <p>{activeAgent === 'user' 
-                   ? '💡 Assistente IA para análise, insights e conversas - Funciona independente do WhatsApp'
-                   : '🤖 Agente automático para atendimento no WhatsApp - Responde mensagens automaticamente'
-                 }</p>
-               </div>
-               <div className="flex items-center space-x-1">
-                 <button
-                   onClick={() => {
-                     if (activeAgent === 'user') {
-                       // Reset do agente pessoal
-                       setUserAssistantMessages([]);
-                       socket?.emit('reset-user-session');
-                       toast.success('Sessão do assistente pessoal resetada!');
-                     } else {
-                       // Reset do agente de suporte
-                       setSupportAgentMessages([]);
-                       socket?.emit('reset-support-session');
-                       toast.success('Sessão do agente de atendimento resetada!');
-                     }
-                   }}
-                   className={`text-xs px-2 py-1 rounded hover:bg-red-200 transition-colors ${
-                     activeAgent === 'user' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'
-                   }`}
-                   title="Resetar sessão do assistente"
-                 >
-                   🔄 Reset
-                 </button>
-               </div>
-             </div>
-           </div>
-
-            {/* Context Display */}
+            {/* Context Info */}
             {selectedChat && (
               <div className="p-3 border-b bg-blue-50 border-blue-200">
                 <h3 className="text-sm font-medium mb-2 text-blue-800">
@@ -971,71 +932,89 @@ function App() {
             )}
 
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            <div className="flex-1 overflow-y-auto p-4">
               {(activeAgent === 'user' ? userAssistantMessages : supportAgentMessages).length === 0 ? (
-                <div className="text-center text-gray-500 mt-8">
-                  <div className={`w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center ${
-                    activeAgent === 'user' ? 'bg-blue-100' : 'bg-green-100'
-                  }`}>
-                    {activeAgent === 'user' ? (
-                      <svg className="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                      </svg>
-                    ) : (
-                      <svg className="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                      </svg>
-                    )}
-                  </div>
-                  <p className="text-sm font-medium">
-                    {activeAgent === 'user' ? 'Assistente IA Pronto' : 'Agente de Atendimento Pronto'}
-                  </p>
-                  <p className="text-xs mt-1 text-gray-400">
-                    {activeAgent === 'user' 
-                      ? 'Faça perguntas sobre análises, insights ou qualquer assunto'
-                      : 'Configure e teste o agente automático para WhatsApp'
-                    }
-                  </p>
-                  {selectedChat && activeAgent === 'user' && (
-                    <div className="mt-3 p-2 rounded text-xs bg-blue-50 text-blue-700">
-                      💡 Analisando conversa com {selectedChat.name || 'este contato'}
-                    </div>
-                  )}
-                  {activeAgent === 'support' && (
-                    <div className="mt-3 p-2 rounded text-xs bg-green-50 text-green-700">
-                      🤖 Assistente IA - Status: {agentEnabled ? 'Ativo no WhatsApp' : 'Inativo - Configure e ative'}
-                    </div>
+                <div className="flex flex-col items-center justify-center h-full text-center">
+                  {activeAgent === 'user' ? (
+                    <>
+                      <User className="h-16 w-16 text-blue-500 mb-4" />
+                      <h3 className="text-xl font-semibold mb-3 text-gray-900">
+                        Assistente IA Pessoal
+                      </h3>
+                      <p className="text-gray-600 mb-4 max-w-md">
+                        Seu assistente pessoal para análises, insights e conversas gerais. 
+                        Funciona independentemente do WhatsApp.
+                      </p>
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 max-w-lg">
+                        <h4 className="font-medium text-blue-800 mb-2">🎯 O que posso fazer:</h4>
+                        <div className="text-sm text-blue-700 space-y-1 text-left">
+                          <div>📊 Analisar suas conversas e dados</div>
+                          <div>💡 Fornecer insights e sugestões</div>
+                          <div>❓ Responder perguntas gerais</div>
+                          <div>🔍 Ajudar com pesquisas e análises</div>
+                          <div>💬 Conversar sobre qualquer assunto</div>
+                        </div>
+                      </div>
+                      <div className="mt-4 text-xs text-gray-500">
+                        💡 Dica: Use os comandos rápidos abaixo para começar
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <Bot className="h-16 w-16 text-green-500 mb-4" />
+                      <h3 className="text-xl font-semibold mb-3 text-gray-900">
+                        Simulador do Agente WhatsApp
+                      </h3>
+                      <p className="text-gray-600 mb-4 max-w-md">
+                        Teste como seu agente responderá no WhatsApp usando as configurações salvas.
+                      </p>
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-4 max-w-lg">
+                        <h4 className="font-medium text-green-800 mb-2">📋 Configuração Atual:</h4>
+                        <div className="text-sm text-green-700 space-y-1">
+                          <div>🤖 <strong>Nome:</strong> {agentConfig.name || 'Assistente IA'}</div>
+                          <div>🎭 <strong>Personalidade:</strong> {agentConfig.personality || 'profissional'}</div>
+                          <div>⚡ <strong>Status:</strong> {agentEnabled ? '✅ Ativo' : '❌ Inativo'}</div>
+                          {agentConfig.prompt && <div>📝 <strong>Prompt personalizado configurado</strong></div>}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setShowAgentSettings(true)}
+                        className="mt-4 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition-colors flex items-center gap-2"
+                      >
+                        <Settings className="h-4 w-4" />
+                        Configurar Agente
+                      </button>
+                      <div className="mt-3 text-xs text-gray-500">
+                        💡 Dica: Use os comandos rápidos para testar diferentes cenários
+                      </div>
+                    </>
                   )}
                 </div>
               ) : (
                 (activeAgent === 'user' ? userAssistantMessages : supportAgentMessages).map((message, index) => (
-                  <div key={index} className={`border rounded-lg p-3 ${
-                    activeAgent === 'user' ? 'bg-blue-50 border-blue-200' : 'bg-green-50 border-green-200'
-                  }`}>
-                    <div className="flex items-start space-x-2">
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${
-                        message.type === 'user' 
-                          ? 'bg-gray-500' 
-                          : activeAgent === 'user' ? 'bg-blue-500' : 'bg-green-500'
-                      }`}>
-                        {message.type === 'user' ? (
-                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                          </svg>
-                        ) : (
-                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                  <div key={index} className={`mb-4 flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+                      message.sender === 'user'
+                        ? activeAgent === 'user' 
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-green-500 text-white'
+                        : 'bg-gray-200 text-gray-800'
+                    }`}>
+                      <div className="flex items-start space-x-2">
+                        {message.sender !== 'user' && (
+                          <svg className="w-5 h-5 mt-1 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-6-3a2 2 0 11-4 0 2 2 0 014 0zm-2 4a5 5 0 00-4.546 2.916A5.986 5.986 0 0010 16a5.986 5.986 0 004.546-2.084A5 5 0 0010 11z" clipRule="evenodd" />
                           </svg>
                         )}
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-sm text-gray-800">{message.content}</p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          {new Date(message.timestamp).toLocaleTimeString('pt-BR', {
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })}
-                        </p>
+                        <div className="flex-1">
+                          <p className="text-sm">{message.content}</p>
+                          <p className="text-xs opacity-75 mt-1">
+                            {new Date(message.timestamp).toLocaleTimeString('pt-BR', {
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </p>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1105,61 +1084,62 @@ function App() {
                 ) : (
                   <>
                     <button 
-                      onClick={() => setSupportInput('Olá! Como posso ajudá-lo hoje?')}
+                      onClick={() => setSupportInput('Oi, gostaria de agendar uma consulta')}
                       className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200"
                     >
-                      👋 Saudação
+                      📅 Agendar
                     </button>
                     <button 
-                      onClick={() => setSupportInput('Obrigado por entrar em contato. Vou verificar isso para você.')}
+                      onClick={() => setSupportInput('Olá, preciso de ajuda com meu pedido')}
                       className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200"
                     >
-                      🔍 Verificar
+                      🛒 Pedido
                     </button>
                     <button 
-                      onClick={() => setSupportInput('Posso ajudá-lo com mais alguma coisa?')}
+                      onClick={() => setSupportInput('Bom dia, quero fazer uma reclamação')}
                       className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200"
                     >
-                      ❓ Mais Ajuda
+                      😠 Reclamação
                     </button>
                     <button 
-                      onClick={() => setSupportInput('Tenha um ótimo dia!')}
+                      onClick={() => setSupportInput('Oi, quero cancelar minha compra')}
                       className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200"
                     >
-                      👋 Despedida
+                      ❌ Cancelar
+                    </button>
+                    <button 
+                      onClick={() => setSupportInput('Olá, vocês têm esse produto disponível?')}
+                      className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200"
+                    >
+                      🔍 Consultar
                     </button>
                   </>
                 )}
               </div>
             </div>
-                </>
-              )}
           </div>
         )}
       </div>
-
-      {/* Agent Settings */}
-      {showAgentSettings && (
-        <AgentSettings
-          socket={socket}
-          isOpen={showAgentSettings}
-          onClose={() => setShowAgentSettings(false)}
-        />
-      )}
 
       {/* Modals */}
       <QRCodeModal
         isOpen={showQRModal}
         qrCode={qrCode}
         onClose={() => setShowQRModal(false)}
-        onRetry={connectWhatsApp}
       />
 
       <ApiKeyModal
         isOpen={showApiKeyModal}
         onSubmit={handleApiKeySubmit}
         onClose={() => setShowApiKeyModal(false)}
-        currentKey={apiKey}
+      />
+
+      <AgentSettings
+        isOpen={showAgentSettings}
+        onClose={() => setShowAgentSettings(false)}
+        socket={socket}
+        agentConfig={agentConfig}
+        setAgentConfig={setAgentConfig}
       />
     </div>
   );
