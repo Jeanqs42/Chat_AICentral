@@ -73,9 +73,6 @@ const createLogger = () => {
 
 const logger = createLogger();
 
-// Importar configuração do Supabase
-const { saveMessage, saveContact, getMessageHistory, getContacts } = require('./config/supabase');
-
 // Inicializar PostgreSQL
 let isPostgresReady = false;
 postgresManager.initialize().then((success) => {
