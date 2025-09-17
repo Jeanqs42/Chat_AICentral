@@ -10,6 +10,8 @@ Uma aplicação web completa similar ao WhatsApp com integração de IA para ate
 - **Tempo Real**: Mensagens em tempo real via WebSocket
 - **Gerenciamento de Chats**: Visualize e gerencie todas as conversas
 - **API Key Gratuita**: Use a API do AI Central gratuitamente
+- **Banco PostgreSQL**: Armazenamento robusto de mensagens e contatos
+- **Histórico Completo**: Todas as conversas são salvas automaticamente
 
 ## 🛠️ Tecnologias Utilizadas
 
@@ -18,6 +20,7 @@ Uma aplicação web completa similar ao WhatsApp com integração de IA para ate
 - Express.js
 - Socket.io
 - WhatsApp.js
+- PostgreSQL
 - Axios
 
 ### Frontend
@@ -32,6 +35,7 @@ Uma aplicação web completa similar ao WhatsApp com integração de IA para ate
 
 - Node.js 16+ instalado
 - NPM ou Yarn
+- PostgreSQL 12+ instalado e configurado
 - Conta no AI Central (gratuita)
 - WhatsApp instalado no celular
 
@@ -39,47 +43,70 @@ Uma aplicação web completa similar ao WhatsApp com integração de IA para ate
 
 ### 1. Clone o repositório
 ```bash
-git clone <url-do-repositorio>
-cd Whatts
+git clone https://github.com/Jeanqs42/Chat_AICentral.git
+cd Chat_AICentral
 ```
 
-### 2. Instale as dependências do servidor
+### 2. Configure o PostgreSQL
+```bash
+# Instale o PostgreSQL (Ubuntu/Debian)
+sudo apt update
+sudo apt install postgresql postgresql-contrib
+
+# Inicie o serviço
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+
+# Crie o banco de dados
+sudo -u postgres psql
+CREATE DATABASE whatsapp_ai;
+CREATE USER whatsapp_user WITH PASSWORD 'sua_senha_aqui';
+GRANT ALL PRIVILEGES ON DATABASE whatsapp_ai TO whatsapp_user;
+\q
+```
+
+### 3. Instale as dependências do servidor
 ```bash
 npm install
 ```
 
-### 3. Instale as dependências do cliente
+### 4. Instale as dependências do cliente
 ```bash
 cd client
 npm install
 cd ..
 ```
 
-### 4. Configure as variáveis de ambiente
-```bash
-cp .env.example .env
-# Edite o arquivo .env com suas configurações
-```
-
-### 3. Instale as dependências do cliente
-```bash
-cd client
-npm install
-cd ..
-```
-
-### 4. Configure as variáveis de ambiente
+### 5. Configure as variáveis de ambiente
 ```bash
 cp .env.example .env
 ```
 
-Edite o arquivo `.env` e adicione sua API Key do AI Central:
+Edite o arquivo `.env` com suas configurações:
 ```env
+# Servidor
+NODE_ENV=production
+PORT=3002
+HOST=0.0.0.0
+
+# AI Central
 AICENTRAL_API_KEY=sua_api_key_aqui
-PORT=3001
+
+# PostgreSQL
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=whatsapp_ai
+DB_USER=whatsapp_user
+DB_PASSWORD=sua_senha_aqui
 ```
 
-### 5. Build do frontend
+### 6. Configure o banco de dados
+```bash
+# Execute o script de configuração do schema
+psql -h localhost -U whatsapp_user -d whatsapp_ai -f database/schema.sql
+```
+
+### 7. Build do frontend
 ```bash
 cd client
 npm run build
@@ -99,7 +126,7 @@ npm run dev
 ```
 
 ### 2. Acesse a aplicação
-Abra seu navegador e acesse: `http://localhost:3000`
+Abra seu navegador e acesse: `http://localhost:3002`
 
 ### 3. Configure sua API Key
 1. Na primeira vez, será solicitada sua API Key do AI Central
@@ -155,10 +182,19 @@ A aplicação utiliza os seguintes endpoints:
 ## 📁 Estrutura do Projeto
 
 ```
-Whatts/
+Chat_AICentral/
 ├── server.js              # Servidor principal
 ├── package.json           # Dependências do servidor
 ├── .env.example          # Exemplo de variáveis de ambiente
+├── config/               # Configurações do ambiente
+│   └── production.json   # Configurações de produção
+├── database/             # Banco de dados PostgreSQL
+│   ├── postgresql.js     # Conexão com PostgreSQL
+│   └── schema.sql        # Schema do banco de dados
+├── scripts/              # Scripts utilitários
+│   ├── setup-postgresql.sh
+│   ├── backup-db.sh
+│   └── monitor-db.sh
 ├── client/               # Frontend React
 │   ├── src/
 │   │   ├── components/   # Componentes React
@@ -168,6 +204,8 @@ Whatts/
 │   ├── package.json     # Dependências do frontend
 │   ├── vite.config.js   # Configuração Vite
 │   └── tailwind.config.js # Configuração Tailwind
+├── static/               # Arquivos estáticos
+├── backups/              # Backups do banco
 └── README.md            # Este arquivo
 ```
 
@@ -184,7 +222,9 @@ Whatts/
 - API Key armazenada localmente no navegador
 - Conexão segura com AI Central via HTTPS
 - WhatsApp.js usa autenticação oficial
-- Dados não são armazenados no servidor
+- Dados armazenados com segurança no PostgreSQL
+- Senhas do banco criptografadas
+- Backup automático dos dados
 
 ## 🐛 Solução de Problemas
 
@@ -203,10 +243,16 @@ Whatts/
 - Verifique a conexão com a internet
 - Tente gerar um novo QR Code
 
-### Mensagens não aparecem
-- Verifique a conexão WebSocket
-- Confirme se o WhatsApp está conectado
-- Recarregue a página
+### Banco de dados não conecta
+- Verifique se o PostgreSQL está rodando: `sudo systemctl status postgresql`
+- Confirme as credenciais no arquivo .env
+- Teste a conexão: `psql -h localhost -U whatsapp_user -d whatsapp_ai`
+- Verifique se o schema foi criado corretamente
+
+### Mensagens não são salvas
+- Verifique a conexão com PostgreSQL
+- Confirme se as tabelas foram criadas
+- Verifique os logs do servidor para erros de banco
 
 ## 🌐 Deploy em VPS Ubuntu
 
@@ -226,6 +272,9 @@ sudo apt update && sudo apt upgrade -y
 # Instalar Node.js 18
 curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
 sudo apt-get install -y nodejs
+
+# Instalar PostgreSQL
+sudo apt install -y postgresql postgresql-contrib
 
 # Instalar dependências do sistema
 sudo apt install -y git nginx certbot python3-certbot-nginx
@@ -247,11 +296,18 @@ sudo npm install -g pm2
 sudo useradd -m -s /bin/bash whatsapp
 sudo usermod -aG sudo whatsapp
 
+# Configurar PostgreSQL
+sudo -u postgres psql
+CREATE DATABASE whatsapp_ai;
+CREATE USER whatsapp_user WITH PASSWORD 'senha_segura_aqui';
+GRANT ALL PRIVILEGES ON DATABASE whatsapp_ai TO whatsapp_user;
+\q
+
 # Mudar para o usuário da aplicação
 sudo su - whatsapp
 
 # Clonar o repositório
-git clone <seu-repositorio> /home/whatsapp/whatsapp-app
+git clone https://github.com/Jeanqs42/Chat_AICentral.git /home/whatsapp/whatsapp-app
 cd /home/whatsapp/whatsapp-app
 
 # Instalar dependências
@@ -260,6 +316,9 @@ cd client
 npm install
 npm run build
 cd ..
+
+# Configurar banco de dados
+psql -h localhost -U whatsapp_user -d whatsapp_ai -f database/schema.sql
 
 # Configurar variáveis de ambiente
 cp .env.example .env
@@ -279,7 +338,7 @@ module.exports = {
     exec_mode: 'fork',
     env: {
       NODE_ENV: 'production',
-      PORT: 3001
+      PORT: 3002
     },
     error_file: './logs/err.log',
     out_file: './logs/out.log',
@@ -310,7 +369,7 @@ server {
     server_name seu-dominio.com www.seu-dominio.com;
 
     location / {
-        proxy_pass http://localhost:3001;
+        proxy_pass http://localhost:3002;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';

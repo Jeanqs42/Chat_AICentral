@@ -1,4 +1,4 @@
-# WhatsApp Multi-Usuário - Guia de Produção
+# WhatsApp AI Central - Guia de Produção
 
 ## 🚀 Como Colocar em Produção
 
@@ -12,6 +12,21 @@ npm install
 cd client
 npm install
 cd ..
+
+# Configurar PostgreSQL
+sudo apt install postgresql postgresql-contrib
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+
+# Criar banco de dados
+sudo -u postgres psql
+CREATE DATABASE whatsapp_ai;
+CREATE USER whatsapp_user WITH PASSWORD 'sua_senha_aqui';
+GRANT ALL PRIVILEGES ON DATABASE whatsapp_ai TO whatsapp_user;
+\q
+
+# Executar schema do banco
+psql -h localhost -U whatsapp_user -d whatsapp_ai -f database/schema.sql
 ```
 
 ### 2. Configuração de Produção
@@ -23,52 +38,50 @@ O sistema já está configurado com:
 - ✅ Rate limiting
 - ✅ Monitoramento de saúde
 - ✅ Graceful shutdown
+- ✅ Banco PostgreSQL integrado
+- ✅ Backup automático de dados
 
 ### 3. Iniciar em Produção
 
-#### Opção 1: Script Batch (Mais Simples)
-```cmd
-# Executar o arquivo start-production.bat
-start-production.bat
+#### Opção 1: NPM Start (Recomendado)
+```bash
+# Iniciar servidor
+npm start
 ```
 
-#### Opção 2: PowerShell (Mais Controle)
-```powershell
-# Iniciar serviço
-.\manage-service.ps1 start
+#### Opção 2: PM2 (Para VPS/Servidor)
+```bash
+# Instalar PM2
+npm install -g pm2
 
-# Ver status
-.\manage-service.ps1 status
+# Iniciar com PM2
+pm2 start ecosystem.config.js
 
-# Parar serviço
-.\manage-service.ps1 stop
-
-# Reiniciar serviço
-.\manage-service.ps1 restart
+# Salvar configuração
+pm2 save
+pm2 startup
 ```
 
-#### Opção 3: Instalar como Serviço do Windows
-```powershell
-# Execute como Administrador
-.\manage-service.ps1 install
-
-# Depois use:
-net start WhatsAppMultiUsuario
-net stop WhatsAppMultiUsuario
+#### Opção 3: Script de Deploy
+```bash
+# Executar script de deploy
+chmod +x deploy.sh
+./deploy.sh
 ```
 
 ### 4. Acessar a Aplicação
 
-- **Interface Principal**: http://localhost:3001
-- **Monitoramento**: http://localhost:3001/health
-- **Métricas**: http://localhost:3001/metrics
+- **Interface Principal**: http://localhost:3002
+- **Monitoramento**: http://localhost:3002/health
+- **Métricas**: http://localhost:3002/metrics
 
 ### 5. Monitoramento
 
 #### Logs
 - **Aplicação**: `logs/app.log`
 - **Erros**: `logs/error.log`
-- **Serviço**: `logs/service.log`
+- **Banco de Dados**: `logs/database.log`
+- **Sistema**: Logs do sistema via journalctl
 
 #### Endpoints de Monitoramento
 
@@ -107,9 +120,16 @@ Personalize as configurações editando este arquivo:
 ```json
 {
   "server": {
-    "port": 3001,
+    "port": 3002,
     "host": "0.0.0.0",
     "maxConnections": 1000
+  },
+  "database": {
+    "host": "localhost",
+    "port": 5432,
+    "name": "whatsapp_ai",
+    "user": "whatsapp_user",
+    "maxConnections": 20
   },
   "security": {
     "rateLimit": {
@@ -128,18 +148,37 @@ Personalize as configurações editando este arquivo:
 
 ### 7. Inicialização Automática
 
-#### Windows Startup (Método 1)
-1. Pressione `Win + R`
-2. Digite `shell:startup`
-3. Copie o arquivo `start-production.bat` para esta pasta
+#### Systemd Service (Linux)
+1. Criar arquivo de serviço:
+```bash
+sudo nano /etc/systemd/system/whatsapp-ai.service
+```
 
-#### Serviço do Windows (Método 2)
-1. Execute PowerShell como Administrador
-2. Execute: `.\manage-service.ps1 install`
-3. Configure para iniciar automaticamente:
-   ```cmd
-   sc config WhatsAppMultiUsuario start= auto
-   ```
+2. Adicionar conteúdo:
+```ini
+[Unit]
+Description=WhatsApp AI Central
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=whatsapp
+WorkingDirectory=/home/whatsapp/whatsapp-app
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=10
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
+```
+
+3. Ativar serviço:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable whatsapp-ai
+sudo systemctl start whatsapp-ai
+```
 
 ### 8. Backup e Manutenção
 
@@ -147,30 +186,62 @@ Personalize as configurações editando este arquivo:
 - Pasta `sessions/` - Sessões do WhatsApp
 - Arquivo `config/production.json` - Configurações
 - Pasta `logs/` - Logs do sistema
+- **Banco PostgreSQL** - Dados das mensagens e contatos
+
+#### Backup do Banco de Dados
+```bash
+# Backup manual
+pg_dump -h localhost -U whatsapp_user whatsapp_ai > backup_$(date +%Y%m%d_%H%M%S).sql
+
+# Backup automático (crontab)
+0 2 * * * pg_dump -h localhost -U whatsapp_user whatsapp_ai > /home/whatsapp/backups/backup_$(date +\%Y\%m\%d_\%H\%M\%S).sql
+```
 
 #### Limpeza de Logs
-```powershell
+```bash
 # Limpar logs antigos (opcional)
-Get-ChildItem logs\*.log | Where-Object {$_.LastWriteTime -lt (Get-Date).AddDays(-30)} | Remove-Item
+find logs/ -name "*.log" -mtime +30 -delete
+
+# Rotacionar logs do PostgreSQL
+sudo logrotate /etc/logrotate.d/postgresql-common
 ```
 
 ### 9. Solução de Problemas
 
 #### Verificar se está rodando
-```powershell
-.\manage-service.ps1 status
+```bash
+# Via systemd
+sudo systemctl status whatsapp-ai
+
+# Via PM2
+pm2 status
+
+# Via processo
+ps aux | grep node
 ```
 
 #### Ver logs em tempo real
-```cmd
+```bash
+# Logs da aplicação
 tail -f logs/app.log
-# ou
-Get-Content logs\app.log -Wait
+
+# Logs do sistema
+sudo journalctl -u whatsapp-ai -f
+
+# Logs do PostgreSQL
+sudo tail -f /var/log/postgresql/postgresql-*.log
 ```
 
 #### Reiniciar se necessário
-```powershell
-.\manage-service.ps1 restart
+```bash
+# Via systemd
+sudo systemctl restart whatsapp-ai
+
+# Via PM2
+pm2 restart whatsapp-ai
+
+# Reiniciar PostgreSQL
+sudo systemctl restart postgresql
 ```
 
 ### 10. Segurança
@@ -180,6 +251,9 @@ Get-Content logs\app.log -Wait
 - ✅ Logs de segurança
 - ✅ Graceful shutdown
 - ✅ Tratamento de erros
+- ✅ Banco PostgreSQL com autenticação
+- ✅ Conexões criptografadas
+- ✅ Backup automático dos dados
 
 ### 11. Performance
 
@@ -187,14 +261,18 @@ Get-Content logs\app.log -Wait
 - ✅ Cache de arquivos estáticos
 - ✅ Otimizações de timeout
 - ✅ Monitoramento de memória
+- ✅ Pool de conexões PostgreSQL
+- ✅ Índices otimizados no banco
+- ✅ Limpeza automática de logs
 
 ---
 
 ## 🎯 Resumo Rápido
 
-1. **Iniciar**: Execute `start-production.bat`
-2. **Acessar**: http://localhost:3001
-3. **Monitorar**: http://localhost:3001/health
-4. **Gerenciar**: Use `manage-service.ps1`
+1. **Configurar**: Configure PostgreSQL e variáveis de ambiente
+2. **Iniciar**: Execute `npm start` ou use PM2
+3. **Acessar**: http://localhost:3002
+4. **Monitorar**: http://localhost:3002/health
+5. **Gerenciar**: Use systemctl ou PM2
 
-**Pronto! Seu WhatsApp Multi-Usuário está rodando em produção! 🚀**
+**Pronto! Seu WhatsApp AI Central está rodando em produção! 🚀**
