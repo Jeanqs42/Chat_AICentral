@@ -49,6 +49,12 @@ if ! command -v pm2 &> /dev/null; then
     exit 1
 fi
 
+# Verificar se o PostgreSQL está rodando
+if ! systemctl is-active --quiet postgresql; then
+    log_error "PostgreSQL não está rodando. Execute: sudo systemctl start postgresql"
+    exit 1
+fi
+
 log_info "Instalando dependências do servidor..."
 npm install
 
@@ -102,4 +108,4 @@ echo "  - Monitorar: pm2 monit"
 log_info "Verificando status da aplicação..."
 pm2 status
 
-log_success "Aplicação rodando! Acesse via navegador na porta 3001"
+log_success "Aplicação rodando! Acesse via navegador na porta 3002"
